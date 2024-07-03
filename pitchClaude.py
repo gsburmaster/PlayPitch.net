@@ -24,11 +24,13 @@ class Card:
 class PitchEnv(gym.Env):
     def __init__(self):
         super(PitchEnv, self).__init__()
+        self.played_cards = []
         self.num_actions = 22  # 9 for cards in hand, 9 for possible bids (pass, 5-10, shoot the moon, double shoot the moon), 4 for choosing suit
         self.action_space = gym.spaces.Discrete(self.num_actions)
         self.observation_space = gym.spaces.Dict({
             'hand': gym.spaces.Box(low=0, high=15, shape=(9, 2), dtype=np.int8),
             'tricks': gym.spaces.Box(low=0, high=15, shape=(4, 2), dtype=np.int8),
+            'played_cards': gym.spaces.Box(low=0, high=15, shape=(16, 2), dtype=np.int8),
             'scores': gym.spaces.Box(low=0, high=54, shape=(2,), dtype=np.int8),
             'current_bid': gym.spaces.Discrete(9),  # 0,5-10,moon,double moon where 0 means no bid yet
             'current_bidder': gym.spaces.Discrete(4),
@@ -52,6 +54,7 @@ class PitchEnv(gym.Env):
         self.trump_suit = None
         self.phase = 0  # 0: bidding, 1: playing
         self.tricks = []
+        self.played_cards = []
         self.current_trick = []
         self.trick_winner = None
 
@@ -107,7 +110,7 @@ class PitchEnv(gym.Env):
         card = self.hands[self.current_player][action]
         self.current_trick.append(card)
         self.hands[self.current_player].remove(card)
-
+        self.played_cards.append(card)
         if len(self.current_trick) == 4:
             self._resolve_trick()
 
@@ -151,6 +154,7 @@ class PitchEnv(gym.Env):
     def _get_observation(self):
         return {
             'hand': np.array([(card.suit.value if card.suit else 4, card.rank) for card in self.hands[self.current_player]]),
+            'played_cards': np.array([(card.suit.value if card.suit else 4, card.rank) for card in self.played_cards]),
             'tricks': np.array([(card.suit.value if card.suit else 4, card.rank) for card in self.current_trick]),
             'scores': np.array(self.scores),
             'current_bid': self.current_bid,

@@ -85,7 +85,7 @@ class PitchEnv(gym.Env):
         return observation, reward, terminated, truncated, info
 
     def _create_deck(self):
-        deck = [Card(suit, rank) for suit in Suit for rank in range(2, 16)] #does this have 11 rank in it?
+        deck = [Card(suit, rank) for suit in Suit for rank in range(2, 11)] + [Card(suit, rank) for suit in Suit for rank in range(12, 16)] #does this have 11 rank in it?
         deck.extend([Card(None, 11), Card(None, 11)])  # Add two jokers
         self.np_random.shuffle(deck)
         return deck
@@ -96,7 +96,7 @@ class PitchEnv(gym.Env):
                 self.hands[player].append(self.deck.pop())
 
     def _handle_bid(self, action):
-        if 9 <= action <= 14:
+        if 9 <= action <= 14: #TODO fix this
             self.current_bid = action - 4  # Convert to bid value (5-10)
         self.current_player = (self.current_player + 1) % 4
         if self.current_player == (self.dealer + 1) % 4:
@@ -179,19 +179,31 @@ class PitchEnv(gym.Env):
                 mask[9] = 1
             if (self.current_player == self.dealer and self.current_bid == 7):
                 mask[17] = 1 # double shoot if someone has shot already and current player is dealer
-        elif self.phase == 1 and self.current_bidder == self.current_player:
-            mask[18:21] = 1 #TODO check if other players need a valid action for this phase
+        elif self.phase == 1: # suit selection phase
+            mask[18:21] = 1
         elif self.phase == 2:  # Playing phase
             for i, card in enumerate(self.hands[self.current_player]):
                 if self._is_valid_play(card):
                     mask[i] = 1
         
         return mask
+    def _is_off_jack(self,card):
+        if card.rank != 12:
+            return False
+        switch = {
+            Suit.CLUBS: card.suit == Suit.SPADES,
+            Suit.SPADES: card.suit == Suit.CLUBS,
+            Suit.DIAMONDS: card.suit == Suit.HEARTS,
+            Suit.HEARTS: card.suit == Suit.DIAMONDS
+        }
+        return switch.get(self.trump_suit)
 
-    def _is_valid_play(self, card):
+    def _is_valid_play(self, card as Card):
+        if (card.suit == self.trump_suit or card.value == 11 or self._is_off_jack(card)):
+            return True
         # Implement logic to check if a card is valid to play
         # based on the current trick and game rules
-        return True  # Placeholder
+        return False  # Placeholder
 
 # Example usage:
 env = PitchEnv()

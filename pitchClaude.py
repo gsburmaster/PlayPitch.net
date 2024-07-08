@@ -33,7 +33,7 @@ class PitchEnv(gym.Env):
             'played_cards': gym.spaces.Box(low=0, high=15, shape=(16, 2), dtype=np.int8),
             'scores': gym.spaces.Box(low=0, high=54, shape=(2,), dtype=np.int8),
             'current_bid': gym.spaces.Discrete(9),  # 0,5-10,moon,double moon where 0 means no bid yet
-            'current_bidder': gym.spaces.Discrete(4),
+            'current_bidder': gym.spaces.Discrete(5), #no bid or 1-4
             'dealer': gym.spaces.Discrete(4),
             'current_player': gym.spaces.Discrete(4),
             'trump_suit': gym.spaces.Discrete(5),  # 0-3 for suits, 4 for no trump
@@ -100,11 +100,13 @@ class PitchEnv(gym.Env):
             self.current_bid = action - 4  # Convert to bid value (5-10)
         self.current_player = (self.current_player + 1) % 4
         if self.current_player == (self.dealer + 1) % 4:
-            self.phase = 1  # Move to playing phase
+            self.phase = 1  # Move to choosing suit phase
 
     def _handle_choose_suit(self,action):
-        
-        pass
+        if (self.current_player == self.current_bidder):
+            self.trump_suit = action-18
+            self.phase = 2
+        self.current_player = (self.current_player + 1) % 4
 
     def _handle_play(self, action):
         card = self.hands[self.current_player][action]
@@ -145,10 +147,12 @@ class PitchEnv(gym.Env):
         return 0
 
     def _check_game_end(self):
-        return len(self.tricks) == 6
+        return abs(self.scores[0] - self.scores[1]) > 53 or (self.scores[0] > 53 and self.current_bidder )
 
     def _calculate_reward(self):
         # Implement reward calculation based on game state
+        if(self.current_player % 2 == 0):
+            return 
         return 0
 
     def _get_observation(self):
@@ -198,12 +202,11 @@ class PitchEnv(gym.Env):
         }
         return switch.get(self.trump_suit)
 
-    def _is_valid_play(self, card as Card):
+    def _is_valid_play(self, card):
         if (card.suit == self.trump_suit or card.value == 11 or self._is_off_jack(card)):
             return True
-        # Implement logic to check if a card is valid to play
-        # based on the current trick and game rules
-        return False  # Placeholder
+        return False
+    
 
 # Example usage:
 env = PitchEnv()

@@ -1,7 +1,16 @@
+import sys
 import gymnasium as gym
 import numpy as np
 from enum import Enum
 from typing import List, Tuple, Dict
+
+
+#TODO LIST
+# - fix mask numbers
+# figure out how to end the 'playing phase'
+# fix discard and fill
+
+
 
 class Suit(Enum):
     HEARTS = 0
@@ -35,6 +44,7 @@ class PitchEnv(gym.Env):
             'current_bid': gym.spaces.Discrete(9),  # 0,5-10,moon,double moon where 0 means no bid yet
             'current_bidder': gym.spaces.Discrete(5), #no bid or 1-4
             'dealer': gym.spaces.Discrete(4),
+            'number_of_rounds_played': gym.spaces.Box(low=0,high=18446744073709551615, dtype=np.uint64), # how many rounds has the game gone
             'current_player': gym.spaces.Discrete(4),
             'trump_suit': gym.spaces.Discrete(5),  # 0-3 for suits, 4 for no trump
             'phase': gym.spaces.Discrete(3),  # 0: bidding, 1: choosing suit, 2: playing
@@ -57,7 +67,7 @@ class PitchEnv(gym.Env):
         self.played_cards = []
         self.current_trick = []
         self.trick_winner = None
-
+        self.number_of_rounds_played = 0
         self._deal_cards()
         observation = self._get_observation()
         info = {}
@@ -75,6 +85,7 @@ class PitchEnv(gym.Env):
             self._handle_suit_choice(action)
         elif self.phase == 2:  # Playing phase
             self._handle_play(action)
+
 
         terminated = self._check_game_end()
         truncated = False
@@ -118,12 +129,37 @@ class PitchEnv(gym.Env):
 
         self.current_player = (self.current_player + 1) % 4
 
+
+
     def _discard_and_fill(self):
+        dealerOffset = self.dealer
         for player in range(4):
-            self.hands[player] = [card for card in self.hands[player]
+            self.hands[(player + dealerOffset) % 4] = [card for card in self.hands[(player + dealerOffset) % 4]
                                   if card.suit == self.trump_suit or card.rank == 11]
-            while len(self.hands[player]) < 6 and self.deck:
-                self.hands[player].append(self.deck.pop())
+            while len(self.hands[(player + dealerOffset) % 4]) < 6:
+                self.hands[(player + dealerOffset) % 4].append(self.deck.pop())
+            #bidder team fill phase
+            sortLambda = lambda x: 0 if self._is_valid_play(x) else 1 # put the invalid cards at the back of the hand
+            bidderInvalidCount = len(filter(lambda card: not self._is_valid_play(card),self.hands[self.current_bidder]))
+            bidderPartnerInvalidCount = len(filter(lambda card: not self._is_valid_play(card),self.hands[self.current_bidder + 2 % 4]))
+            self.hands[self.current_bidder].sort(key=sortLambda)
+            self.hands[self.current_bidder + 2 % 4].sort(key=sortLambda)
+            while (bidderInvalidCount > 0 and self.deck.count() > 0):
+                if (bidderInvalidCount == self.deck.count()):
+                    for x in range(0,bidderInvalidCount):
+                        self.hands[self.current_bidder].insert(0,self.deck.pop())
+                else:
+                    possibleCard = self.deck.pop()
+                    if (self._is_valid_play(possibleCard)):
+                        self.hands[self.current_bidder].pop()
+                        self.hands[self.current_bidder].insert(0,possibleCard)
+                        bidderInvalidCount = bidderInvalidCount - 1
+            if (self.deck.count() == 0):
+                return
+            elif ()
+        
+        
+            
 
     def _resolve_trick(self):
         winning_card = max(self.current_trick, key=lambda c: (c.suit == self.trump_suit, c.rank))
@@ -147,7 +183,7 @@ class PitchEnv(gym.Env):
         return 0
 
     def _check_game_end(self):
-        return abs(self.scores[0] - self.scores[1]) > 53 or (self.scores[0] > 53 and self.current_bidder )
+        return abs(self.scores[0] - self.scores[1]) > 53 or (self.scores[0] > 53 and self.current_bidder % 2 == 0 ) or (self.scores[0] > 53 and self.current_bidder % 2 == 1 )
 
     def _calculate_reward(self):
         # Implement reward calculation based on game state
@@ -167,6 +203,7 @@ class PitchEnv(gym.Env):
             'current_player': self.current_player,
             'trump_suit': self.trump_suit.value if self.trump_suit else 4,
             'phase': self.phase,
+            'number_of_rounds_played': self.number_of_rounds_played,
             'action_mask': self._get_action_mask()
         }
 

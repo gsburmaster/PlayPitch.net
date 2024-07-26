@@ -11,8 +11,6 @@ from typing import List, Tuple, Dict
 # fix discard and fill
 # add observations for how many cards each player takes
 
-
-
 class Suit(Enum):
     HEARTS = 0
     DIAMONDS = 1
@@ -45,8 +43,9 @@ class PitchEnv(gym.Env):
             'current_bid': gym.spaces.Discrete(9),  # 0,5-10,moon,double moon where 0 means no bid yet
             'current_bidder': gym.spaces.Discrete(5), #no bid or 1-4
             'dealer': gym.spaces.Discrete(4),
-            'number_of_rounds_played': gym.spaces.Box(low=0,high=18446744073709551615, dtype=np.uint64), # how many rounds has the game gone
+            'number_of_rounds_played': gym.spaces.Box(low=0,high=2**63 - 2, dtype=np.uint64), # how many rounds has the game gone
             'current_player': gym.spaces.Discrete(4),
+            'player_cards_taken': gym.spaces.Box(low=-1,high=10, shape=(4,),dtype=np.int8),
             'trump_suit': gym.spaces.Discrete(5),  # 0-3 for suits, 4 for no trump
             'phase': gym.spaces.Discrete(3),  # 0: bidding, 1: choosing suit, 2: playing
             'action_mask': gym.spaces.Box(low=0, high=1, shape=(self.num_actions,), dtype=np.int8)
@@ -68,6 +67,7 @@ class PitchEnv(gym.Env):
         self.played_cards = []
         self.current_trick = []
         self.trick_winner = None
+        self.player_cards_taken = [-1,-1,-1,-1]
         self.number_of_rounds_played = 0
         self._deal_cards()
         observation = self._get_observation()
@@ -187,7 +187,7 @@ class PitchEnv(gym.Env):
         return abs(self.scores[0] - self.scores[1]) > 53 or (self.scores[0] > 53 and self.current_bidder % 2 == 0 ) or (self.scores[0] > 53 and self.current_bidder % 2 == 1 )
 
     def _calculate_reward(self):
-        # Implement reward calculation based on game state
+        #TODO Implement reward calculation based on game state
         if(self.current_player % 2 == 0):
             return 
         return 0
@@ -205,6 +205,7 @@ class PitchEnv(gym.Env):
             'trump_suit': self.trump_suit.value if self.trump_suit else 4,
             'phase': self.phase,
             'number_of_rounds_played': self.number_of_rounds_played,
+            'player_cards_taken': self.player_cards_taken,
             'action_mask': self._get_action_mask()
         }
 
@@ -212,7 +213,7 @@ class PitchEnv(gym.Env):
         mask = np.zeros(self.num_actions, dtype=np.int8)
         
         if self.phase == 0:  # Bidding phase
-            min = self.current_bid + 9
+            min = self.current_bid + 9 #offset for bidding actions
             if min < 15:
                 mask[min+1:16] = 1  # Allow bids from 5 to 10, or pass (index 9 to 16)
             elif min == 15:

@@ -9,6 +9,7 @@ from typing import List, Tuple, Dict
 # - fix mask numbers
 # figure out how to end the 'playing phase'
 # fix discard and fill
+# add observations for how many cards each player takes
 
 
 

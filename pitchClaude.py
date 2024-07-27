@@ -184,12 +184,17 @@ class PitchEnv(gym.Env):
         return 0
 
     def _check_game_end(self):
-        return abs(self.scores[0] - self.scores[1]) > 53 or (self.scores[0] > 53 and self.current_bidder % 2 == 0 ) or (self.scores[0] > 53 and self.current_bidder % 2 == 1 )
+        return abs(self.scores[0] - self.scores[1]) > 53 or (self.scores[0] > 53 and self.current_bidder % 2 == 0 ) or (self.scores[1] > 53 and self.current_bidder % 2 == 1 )
+
+    def _check_current_player_win(self):
+        if (self.current_player % 2 == 0):
+            return self.scores[0] - self.scores[1] > 53 or (self.scores[0] > 53 and self.current_bidder % 2 == 0)
+        return self.scores[1] - self.scores[0] > 53 or (self.scores[1] > 53 and self.current_bidder % 2 == 1)
 
     def _calculate_reward(self):
         #TODO Implement reward calculation based on game state
-        if(self.current_player % 2 == 0):
-            return 
+        return self.scores[self.current_player % 2] - self.number_of_rounds_played*.4 
+        
         return 0
 
     def _get_observation(self):

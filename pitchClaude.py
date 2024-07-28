@@ -33,10 +33,10 @@ class PitchEnv(gym.Env):
     def __init__(self):
         super(PitchEnv, self).__init__()
         self.played_cards = []
-        self.num_actions = 22  # 9 for cards in hand, 9 for possible bids (pass, 5-10, shoot the moon, double shoot the moon), 4 for choosing suit
+        self.num_actions = 23  # 10 for cards in hand, 9 for possible bids (pass, 5-10, shoot the moon, double shoot the moon), 4 for choosing suit
         self.action_space = gym.spaces.Discrete(self.num_actions)
         self.observation_space = gym.spaces.Dict({
-            'hand': gym.spaces.Box(low=0, high=15, shape=(9, 2), dtype=np.int8),
+            'hand': gym.spaces.Box(low=0, high=15, shape=(10, 2), dtype=np.int8), # possible to have up to ten cards
             'tricks': gym.spaces.Box(low=0, high=15, shape=(4, 2), dtype=np.int8),
             'played_cards': gym.spaces.Box(low=0, high=15, shape=(16, 2), dtype=np.int8),
             'scores': gym.spaces.Box(low=0, high=54, shape=(2,), dtype=np.int8),
@@ -139,6 +139,7 @@ class PitchEnv(gym.Env):
                                   if card.suit == self.trump_suit or card.rank == 11]
             while len(self.hands[(player + dealerOffset) % 4]) < 6:
                 self.hands[(player + dealerOffset) % 4].append(self.deck.pop())
+                self.player_cards_taken[(player + dealerOffset) % 4] += 1
             #bidder team fill phase
             sortLambda = lambda x: 0 if self._is_valid_play(x) else 1 # put the invalid cards at the back of the hand
             bidderInvalidCount = len(filter(lambda card: not self._is_valid_play(card),self.hands[self.current_bidder]))
@@ -158,8 +159,17 @@ class PitchEnv(gym.Env):
             if (self.deck.count() == 0):
                 return
             else:
-                # fill up partner 
-        
+                cardsToAddToPartner = filter(lambda card: self._is_valid_play(card),self.deck)
+                if (len(cardsToAddToPartner) > bidderPartnerInvalidCount):
+                    self.hands[self.current_bidder + 2 % 4] = filter(lambda card: self.hands[self.current_bidder + 2 % 4])
+                    self.hands[self.current_bidder + 2 % 4] = self.hands[self.current_bidder + 2 % 4] + cardsToAddToPartner
+                    self.player_cards_taken[self.current_bidder + 2 % 4] = len(cardsToAddToPartner)
+                else:
+                    for x in range(len(cardsToAddToPartner)):
+                        self.hands[self.current_bidder + 2 % 4].pop()
+                        self.hands[self.current_bidder + 2 % 4].insert(0,cardsToAddToPartner.pop())
+                    self.player_cards_taken[self.current_bidder + 2 % 4] = len(cardsToAddToPartner + 1) #TODO check on this
+
         
             
 

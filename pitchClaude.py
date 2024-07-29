@@ -62,7 +62,7 @@ class PitchEnv(gym.Env):
         self.dealer = self.np_random.integers(4)
         self.current_player = (self.dealer + 1) % 4
         self.trump_suit = None
-        self.phase = 0  # 0: bidding, 1: playing
+        self.phase = 0  
         self.tricks = []
         self.played_cards = []
         self.current_trick = []
@@ -108,15 +108,17 @@ class PitchEnv(gym.Env):
                 self.hands[player].append(self.deck.pop())
 
     def _handle_bid(self, action):
-        if 9 <= action <= 14: #TODO fix this
-            self.current_bid = action - 4  # Convert to bid value (5-10)
+        if 11 <=action <= 18: #bid 5-double moon, works normally. assumes you pass in a valid bid
+            self.current_bid = action - 6
+            self.current_bidder = self.current_player
+            
         self.current_player = (self.current_player + 1) % 4
         if self.current_player == (self.dealer + 1) % 4:
             self.phase = 1  # Move to choosing suit phase
 
     def _handle_choose_suit(self,action):
         if (self.current_player == self.current_bidder):
-            self.trump_suit = action-18
+            self.trump_suit = action-19
             self.phase = 2
         self.current_player = (self.current_player + 1) % 4
 
@@ -223,26 +225,30 @@ class PitchEnv(gym.Env):
         }
 
     def _get_action_mask(self):
-        mask = np.zeros(self.num_actions, dtype=np.int8)
+        mask = np.zeros(self.num_actions, dtype=np.int8) #17 = shoot moon
         
         if self.phase == 0:  # Bidding phase
-            min = self.current_bid + 9 #offset for bidding actions
-            if min < 15:
-                mask[min+1:16] = 1  # Allow bids from 5 to 10, or pass (index 9 to 16)
-            elif min == 15:
-                mask[16] = 1  
-            if not (self.current_bid != 0 and self.current_player == self.dealer):
-                mask[9] = 1
-            if (self.current_player == self.dealer and self.current_bid == 7):
-                mask[17] = 1 # double shoot if someone has shot already and current player is dealer
+            currentBidAsMask = self.current_bid + 6
+            if (self.current_player != self.dealer):
+                mask[10] = 1
+            if (currentBidAsMask > 17):
+                if currentBidAsMask == 16:
+                    mask[17] = 1
+                else:
+                    mask[currentBidAsMask+1:17] = 1
+            if (self.current_player == self.dealer):
+                if (currentBidAsMask == 17):
+                    mask[18] = 1 # double shoot
+                if (currentBidAsMask < 11):
+                    mask[10] = 1 #allowed to pass if someone has bid
         elif self.phase == 1: # suit selection phase
-            mask[18:21] = 1
+            mask[19:22] = 1
         elif self.phase == 2:  # Playing phase
             for i, card in enumerate(self.hands[self.current_player]):
                 if self._is_valid_play(card):
                     mask[i] = 1
-        
         return mask
+    
     def _is_off_jack(self,card):
         if card.rank != 12:
             return False

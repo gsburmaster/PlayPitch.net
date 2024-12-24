@@ -8,9 +8,11 @@ from typing import List, Tuple, Dict
 #TODO LIST
 # - fix mask numbers
 # figure out how to end the 'playing phase'
+# write unit tests for discard and fill
 # fix discard and fill
 # add observations for how many cards each player takes
-# figure out action for no valid moves
+# figure out how to end each trick when no valid moves
+# assume burn worst cards-always the right play 
 
 class Suit(Enum):
     HEARTS = 0
@@ -70,6 +72,7 @@ class PitchEnv(gym.Env):
         self.trick_winner = None
         self.player_cards_taken = [-1,-1,-1,-1]
         self.number_of_rounds_played = 0
+        self.playing_iterator = 0
         self._deal_cards()
         observation = self._get_observation()
         info = {}
@@ -124,15 +127,20 @@ class PitchEnv(gym.Env):
         self.current_player = (self.current_player + 1) % 4
 
     def _handle_play(self, action):
-        card = self.hands[self.current_player][action]
-        self.current_trick.append(card)
-        self.hands[self.current_player].remove(card)
-        self.played_cards.append(card)
-        if len(self.current_trick) == 4:
+        if (action < 22 ):
+            card = self.hands[self.current_player][action]
+            self.current_trick.append((card,self.current_player))
+            self.hands[self.current_player].remove(card)
+            self.played_cards.append(card)
+        #TODO fix this
+        if self.playing_iterator == 3: #tell when everyone has played:
             self._resolve_trick()
+            self.playing_iterator = 0
+            self.current_player = (self.current_player + 1) % 4 
+            return
 
         self.current_player = (self.current_player + 1) % 4
-
+        self.playing_iterator += 1
 
 
     def _discard_and_fill(self):
@@ -140,7 +148,7 @@ class PitchEnv(gym.Env):
         for player in range(4):
             self.hands[(player + dealerOffset) % 4] = [card for card in self.hands[(player + dealerOffset) % 4]
                                   if card.suit == self.trump_suit or card.rank == 11]
-            while len(self.hands[(player + dealerOffset) % 4]) < 6:
+            while len(self.hands[(player + dealerOffset) % 4]) < 6 and len(self.deck) > 0:
                 self.hands[(player + dealerOffset) % 4].append(self.deck.pop())
                 self.player_cards_taken[(player + dealerOffset) % 4] += 1
             #bidder team fill phase
@@ -177,13 +185,13 @@ class PitchEnv(gym.Env):
             
 
     def _resolve_trick(self):
-        winning_card = max(self.current_trick, key=lambda c: (c.suit == self.trump_suit, c.rank))
-        self.trick_winner = self.current_trick.index(winning_card)
+        winning_card_player_tuple = max(self.current_trick, key=lambda c: (self._is_valid_play(c[0]), c[0].rank))
+        self.trick_winner = winning_card_player_tuple[1]
         self.tricks.append(self.current_trick)
         self.current_trick = []
         self.current_player = self.trick_winner
 
-        trick_points = sum(self._card_points(card) for card in self.tricks[-1])
+        trick_points = sum(self._card_points(tuple[0]) for tuple in self.tricks[-1])
         self.scores[self.trick_winner % 2] += trick_points
 
     def _card_points(self, card):
@@ -240,14 +248,15 @@ class PitchEnv(gym.Env):
                     mask[18] = 1 # double shoot
         elif self.phase == 1: # suit selection phase
             mask[19:23] = 1
-        elif self.phase == 2:  # Playing phase
+        elif self.phase == 2: # Playing phase
+            anyTrue = False  
             for i, card in enumerate(self.hands[self.current_player]):
                 if self._is_valid_play(card):
                     mask[i] = 1
                     anyTrue = True
             if not anyTrue:
                 mask = np.zeros(self.num_actions, dtype=np.int8)
-                mask[24] = 1
+                mask[23] = 1
         return mask
     
     def _is_off_jack(self,card):
@@ -261,8 +270,6 @@ class PitchEnv(gym.Env):
         }
         return switch.get(self.trump_suit)
 
+    #returns if a card is a valid play for current game
     def _is_valid_play(self, card):
-        if (card.suit == self.trump_suit or card.rank == 11 or self._is_off_jack(card)):
-            return True
-        return False
-    
+        return card.suit == self.trump_suit or card.rank == 11 or self._is_off_jack(card) 

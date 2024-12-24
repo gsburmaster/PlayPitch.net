@@ -43,6 +43,21 @@ class TestPitchEnv(unittest.TestCase):
         self.assertEqual(len(self.env.current_trick), 1)
         self.assertEqual(len(self.env.played_cards), 1)
 
+    def test_handle_play_no_moves(self):
+        self.env.reset()
+        self.env.phase = 2
+        self.env._handle_play(23) 
+        self.assertEqual(self.env.playing_iterator,1)
+
+    def test_handle_play_only_2_cards(self):
+        self.env.reset()
+        self.env.phase = 2
+        self.env.current_trick = [
+            Card(Suit.HEARTS,3)
+        ]
+        self.env._handle_play(23) #TODO finish
+        self.assertEqual(self.env.playing_iterator,1)
+
     def test_resolve_trick_no_points(self):
         self.env.reset()
         self.env.trump_suit = Suit.HEARTS
@@ -61,10 +76,9 @@ class TestPitchEnv(unittest.TestCase):
         self.env.reset()
         self.env.trump_suit = Suit.HEARTS
         self.env.current_trick = [
-            Card(Suit.SPADES, 7),
-            Card(Suit.HEARTS, 4),
-            Card(Suit.HEARTS, 5),
-            Card(Suit.HEARTS, 6)
+            (Card(Suit.HEARTS, 4),1),
+            (Card(Suit.HEARTS, 5),2),
+            (Card(Suit.HEARTS, 6),3)
         ]
         self.env._resolve_trick()
         self.assertEqual(self.env.trick_winner, 3)  # 6 of hearts should win
@@ -75,15 +89,30 @@ class TestPitchEnv(unittest.TestCase):
         self.env.reset()
         self.env.trump_suit = Suit.HEARTS
         self.env.current_trick = [
-            Card(Suit.HEARTS, 5),
-            Card(Suit.HEARTS, 10),
-            Card(Suit.HEARTS, 4),
-            Card(Suit.HEARTS, 6)
+            (Card(Suit.HEARTS, 5),0),
+            (Card(Suit.HEARTS, 10),1),
+            (Card(Suit.HEARTS, 4),2),
+            (Card(Suit.HEARTS, 6),3)
         ]
         self.env._resolve_trick()
         self.assertEqual(self.env.trick_winner, 1)  # 10 should win
         self.assertEqual(len(self.env.tricks), 1)
         self.assertEqual(self.env.scores[1], 1)  # 0 points 
+
+
+    def test_resolve_trick_off_jack_wins(self):
+        self.env.reset()
+        self.env.trump_suit = Suit.HEARTS
+        self.env.current_trick = [
+            (Card(Suit.DIAMONDS, 12),0),
+            (Card(Suit.HEARTS, 10),1),
+            (Card(Suit.HEARTS, 4),2),
+            (Card(Suit.HEARTS, 6),3)
+        ]
+        self.env._resolve_trick()
+        self.assertEqual(self.env.trick_winner, 0)  # Off Jack should win
+        self.assertEqual(len(self.env.tricks), 1)
+        self.assertEqual(self.env.scores[0], 2)  # 0 points 
 
     def test_card_points(self):
         self.assertEqual(self.env._card_points(Card(Suit.HEARTS, 15)), 1)  # Ace
@@ -146,6 +175,15 @@ class TestPitchEnv(unittest.TestCase):
         self.env.hands[self.env.current_player] = [Card(Suit.HEARTS, 7), Card(Suit.CLUBS, 8)]
         mask = self.env._get_action_mask()
         self.assertEqual(mask[:2].tolist(), [1, 0])  # Can play the Hearts card, but not the Clubs card
+
+    def test_get_action_mask_playing_no_valid(self):
+        self.env.reset()
+        self.env.phase = 2
+        self.env.trump_suit = Suit.HEARTS
+        self.env.hands[self.env.current_player] = [Card(Suit.SPADES, 7), Card(Suit.CLUBS, 8)]
+        mask = self.env._get_action_mask()
+        self.assertEqual(mask.tolist(), [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1])  # Can play nothing
+
 
 if __name__ == '__main__':
     unittest.main()

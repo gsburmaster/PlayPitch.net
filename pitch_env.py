@@ -11,7 +11,6 @@ from typing import List, Tuple, Dict
 # write unit tests for discard and fill
 # fix discard and fill
 # add observations for how many cards each player takes
-# figure out how to end each trick when no valid moves
 # assume burn worst cards-always the right play 
 
 class Suit(Enum):
@@ -40,7 +39,8 @@ class PitchEnv(gym.Env):
         self.action_space = gym.spaces.Discrete(self.num_actions)
         self.observation_space = gym.spaces.Dict({
             'hand': gym.spaces.Box(low=0, high=15, shape=(10, 2), dtype=np.int8), # possible to have up to ten cards
-            'tricks': gym.spaces.Box(low=0, high=15, shape=(4, 2), dtype=np.int8),
+            'tricks': gym.spaces.Box(low=0, high=15, shape=(4, 2), dtype=np.int8), 
+            'round_scores': gym.spaces.Box(low=0,high=10,shape=(2,), dtype=np.int8), # temporary score used to evaluate if you made your bid or not
             'played_cards': gym.spaces.Box(low=0, high=15, shape=(16, 2), dtype=np.int8),
             'scores': gym.spaces.Box(low=0, high=54, shape=(2,), dtype=np.int8),
             'current_bid': gym.spaces.Discrete(9),  # 0,5-10,moon,double moon where 0 means no bid yet
@@ -59,6 +59,7 @@ class PitchEnv(gym.Env):
         super().reset(seed=seed)
         self.deck = self._create_deck()
         self.hands = [[] for _ in range(4)]
+        self.round_scores = [0,0]
         self.scores = [0, 0]
         self.current_bid = 0
         self.current_high_bidder = 0
@@ -132,7 +133,9 @@ class PitchEnv(gym.Env):
             self.current_trick.append((card,self.current_player))
             self.hands[self.current_player].remove(card)
             self.played_cards.append(card)
-        #TODO fix this
+        if (len(self.current_trick) == 0):
+            self._end_round()
+            return
         if self.playing_iterator == 3: #tell when everyone has played:
             self._resolve_trick()
             self.playing_iterator = 0
@@ -181,18 +184,34 @@ class PitchEnv(gym.Env):
                         self.hands[self.current_high_bidder + 2 % 4].insert(0,cardsToAddToPartner.pop())
                     self.player_cards_taken[self.current_high_bidder + 2 % 4] = len(cardsToAddToPartner + 1) #TODO check on this
 
-        
+    def _end_round(self):
+        if self.current_bid < 10:
+            if (self.round_scores[(self.current_high_bidder) % 2] >= self.current_bid):
+                pass
+                #bid adds
+            else:
+                #bid subtracted from score
+                pass    
+                
+        self.dealer = self.dealer + 1 % 4
+
+        #TODO add temp score for round
+        #going set calculate score
+        #change to next round
+        #we might want to tell the model if they won the trick or if they went set
             
 
     def _resolve_trick(self):
         winning_card_player_tuple = max(self.current_trick, key=lambda c: (self._is_valid_play(c[0]), c[0].rank))
         self.trick_winner = winning_card_player_tuple[1]
+
         self.tricks.append(self.current_trick)
         self.current_trick = []
         self.current_player = self.trick_winner
 
         trick_points = sum(self._card_points(tuple[0]) for tuple in self.tricks[-1])
-        self.scores[self.trick_winner % 2] += trick_points
+        #TODO include tmp score here, change actual score later 
+        self.round_scores[self.trick_winner % 2] += trick_points
 
     def _card_points(self, card):
         if card.rank in [15, 12, 10]:  # Ace, Jack, 10

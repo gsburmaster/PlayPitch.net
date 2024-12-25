@@ -108,3 +108,5 @@ def train_agents(num_episodes=10000):
 trained_agents = train_agents()
 
 # You can now use these trained agents to play against each other or evaluate their performance
+model_scripted = torch.jit.script(trained_agents[0]) # Export to TorchScript
+model_scripted.save('model_scripted.pt') # Save

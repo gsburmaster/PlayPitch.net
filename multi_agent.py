@@ -89,11 +89,13 @@ def train_agents(num_episodes=10000):
             state = flatten_observation(obs)
             action = agents[current_player].act(state, obs['action_mask'])
             next_obs, reward, done, _, _ = env.step(action)
+            env.print_state()
             next_state = flatten_observation(next_obs)
             agents[current_player].remember(state, action, reward, next_state, done)
             agents[current_player].replay()
             obs = next_obs
             total_reward[current_player] += reward
+            
 
         # Update target networks
         for agent in agents:

@@ -79,6 +79,16 @@ class PitchEnv(gym.Env):
         info = {}
         return observation, info
 
+    def print_state(self):
+        strn = '\nCurrent State: \n'
+        strn += 'Current Phase: ' + str(self.phase) + '\n'
+        strn += 'Current Bid: ' + str(self.current_bid) + '\n'
+        strn += 'Current Bidder: ' + str(self.current_high_bidder) + '\n'
+        strn += 'Dealer: ' + str(self.dealer) + '\n'
+        strn += 'Current Player: ' + str(self.current_player) + '\n'
+        print(strn)
+        return
+        
     def step(self, action):
         observation = self._get_observation()
         if observation['action_mask'][action] == 0:
@@ -116,7 +126,9 @@ class PitchEnv(gym.Env):
         if 11 <=action <= 18: #bid 5-double moon, works normally. assumes you pass in a valid bid
             self.current_bid = action - 6
             self.current_high_bidder = self.current_player
-            
+        elif (action != 10):
+            return Exception("invalid action passed to handle bid!")
+        
         self.current_player = (self.current_player + 1) % 4
         if self.current_player == (self.dealer + 1) % 4:
             self.phase = 1  # Move to choosing suit phase
@@ -127,13 +139,21 @@ class PitchEnv(gym.Env):
             self.phase = 2
         self.current_player = (self.current_player + 1) % 4
 
+    def _no_more_valid_plays_any_hand(self):
+        for i in range(0,4):
+            for j in range(0,len(self.hands[i])):
+                if (self._is_valid_play(self.hands[i][j])):
+                    return False
+        return True        
+        
+
     def _handle_play(self, action):
         if (action < 22 ):
             card = self.hands[self.current_player][action]
             self.current_trick.append((card,self.current_player))
             self.hands[self.current_player].remove(card)
             self.played_cards.append(card)
-        if (len(self.current_trick) == 0):
+        if (len(self.current_trick) == 0 and self._no_more_valid_plays_any_hand()): 
             self._end_round()
             return
         if self.playing_iterator == 3: #tell when everyone has played:
@@ -185,21 +205,38 @@ class PitchEnv(gym.Env):
                     self.player_cards_taken[self.current_high_bidder + 2 % 4] = len(cardsToAddToPartner + 1) #TODO check on this
 
     def _end_round(self):
-        if self.current_bid < 10:
+        #add the scores up
+        if self.current_bid <= 10:
             if (self.round_scores[(self.current_high_bidder) % 2] >= self.current_bid):
-                pass
-                #bid adds
+                self.scores[self.current_high_bidder % 2] += self.round_scores[self.current_high_bidder % 2]
             else:
-                #bid subtracted from score
-                pass    
-                
+                self.scores[self.current_high_bidder % 2] -= self.current_bid
+        else: #moon conditions
+            if (self.round_scores[(self.current_high_bidder) % 2] == 10):
+                self.scores[self.current_high_bidder % 2] += 20 if self.current_bid == 11 else 40
+                pass
+            else:
+                self.scores[self.current_high_bidder % 2] -= 20 if self.current_bid == 11 else 40
+        self.scores[(self.current_high_bidder + 1) % 2] += self.round_scores[(self.current_high_bidder + 1) % 2]
         self.dealer = self.dealer + 1 % 4
-
-        #TODO add temp score for round
-        #going set calculate score
-        #change to next round
-        #we might want to tell the model if they won the trick or if they went set
-            
+        self.deck = self._create_deck()
+        self.hands = [[] for _ in range(4)]
+        self.round_scores = [0,0]
+        self.current_bid = 0
+        self.current_high_bidder = 0
+        self.current_player = (self.dealer + 1) % 4
+        self.trump_suit = None
+        self.phase = 0  
+        self.tricks = []
+        self.played_cards = []
+        self.current_trick = []
+        self.trick_winner = None
+        self.player_cards_taken = [-1,-1,-1,-1]
+        self.number_of_rounds_played += 1
+        self.playing_iterator = 0
+        self._deal_cards()
+        print('\nscores: Team 1: ' + str(self.scores[0]) + ' Team 2: ' + str(self.scores[1]))
+        
 
     def _resolve_trick(self):
         winning_card_player_tuple = max(self.current_trick, key=lambda c: (self._is_valid_play(c[0]), c[0].rank))
@@ -239,7 +276,7 @@ class PitchEnv(gym.Env):
         return {
             'hand': np.array([(card.suit.value if card.suit else 4, card.rank) for card in self.hands[self.current_player]]),
             'played_cards': np.array([(card.suit.value if card.suit else 4, card.rank) for card in self.played_cards]),
-            'tricks': np.array([(card.suit.value if card.suit else 4, card.rank) for card in self.current_trick]),
+            'tricks': np.array([(tuple[0].suit.value if tuple[0].suit else 4, tuple[0].rank) for tuple in self.current_trick]),
             'scores': np.array(self.scores),
             'current_bid': self.current_bid,
             'current_high_bidder': self.current_high_bidder,

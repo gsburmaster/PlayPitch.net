@@ -1,3 +1,4 @@
 pitchenv/
 __pycache__/
 .vscode/
+webserver/node_modules/

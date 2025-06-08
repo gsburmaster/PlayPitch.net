@@ -6,9 +6,12 @@ from collections import deque
 import random
 from pitch_env import PitchEnv
 
+
+
 class DQN(nn.Module):
     def __init__(self, input_dim, output_dim):
         super(DQN, self).__init__()
+        print(f'initial input dimention for layer 1: {input_dim}')
         self.fc1 = nn.Linear(input_dim, 128)
         self.fc2 = nn.Linear(128, 64)
         self.fc3 = nn.Linear(64, output_dim)
@@ -20,6 +23,7 @@ class DQN(nn.Module):
 
 class Agent:
     def __init__(self, state_dim, action_dim):
+        self.state_dim = state_dim
         self.q_network = DQN(state_dim, action_dim)
         self.target_network = DQN(state_dim, action_dim)
         self.target_network.load_state_dict(self.q_network.state_dict())
@@ -42,7 +46,10 @@ class Agent:
     def remember(self, state, action, reward, next_state, done):
         self.memory.append((state, action, reward, next_state, done))
 
-    def replay(self):
+    def print_size(self):
+        print(self.state_dim, 'self state dim')
+        return
+    def replay(self,env):
         if len(self.memory) < self.batch_size:
             return
         minibatch = random.sample(self.memory, self.batch_size)
@@ -50,6 +57,11 @@ class Agent:
             target = reward
             if not done:
                 next_state = torch.FloatTensor(next_state).unsqueeze(0)
+                try:
+                    target = reward + self.gamma * self.target_network(next_state).max(1)[0].item()
+                except:
+                    env.print_state()
+                    print(state)                    
                 target = reward + self.gamma * self.target_network(next_state).max(1)[0].item()
             state = torch.FloatTensor(state).unsqueeze(0)
             target_f = self.q_network(state)
@@ -64,19 +76,24 @@ class Agent:
     def update_target_network(self):
         self.target_network.load_state_dict(self.q_network.state_dict())
 
-def flatten_observation(obs):
+def flatten_observation(obs, debug = False):
     flattened = []
+    if (debug): print('keys: ', obs.keys())
     for key, value in obs.items():
         if isinstance(value, np.ndarray):
+            if (debug): print('value array shape: ', value.shape)
             flattened.extend(value.flatten())
         elif isinstance(value, (int, np.integer)):
+            if (debug): print('int array val', str(value))
             flattened.append(value)
+    if (debug): print("Final flattened state size:", len(np.array(flattened)))
     return np.array(flattened)
 
 def train_agents(num_episodes=10000):
     env = PitchEnv()
     state_dim = len(flatten_observation(env.reset()[0]))
     action_dim = env.action_space.n
+    print(f"Actual state dimension: {state_dim}")
     agents = [Agent(state_dim, action_dim) for _ in range(4)]
 
     for episode in range(num_episodes):
@@ -88,11 +105,17 @@ def train_agents(num_episodes=10000):
             current_player = env.current_player
             state = flatten_observation(obs)
             action = agents[current_player].act(state, obs['action_mask'])
-            next_obs, reward, done, _, _ = env.step(action)
-            env.print_state()
+            next_obs, reward, done, _, _ = env.step(action,obs)
             next_state = flatten_observation(next_obs)
-            agents[current_player].remember(state, action, reward, next_state, done)
-            agents[current_player].replay()
+            try:
+                agents[current_player].remember(state, action, reward, next_state, done)
+                agents[current_player].replay(env)
+            except RuntimeError:
+                print(f'\n\nstate len: {len(state)}' )
+                print(f'next state len: {len(next_state)}')
+                flatten_observation(obs,debug = True)
+                env.print_state()
+                raise Exception
             obs = next_obs
             total_reward[current_player] += reward
             

@@ -19,6 +19,11 @@ class Suit(Enum):
     CLUBS = 2
     SPADES = 3
 
+class Phase(Enum):
+    BIDDING = 0
+    CHOOSESUIT = 1
+    PLAYING = 2
+
 class Card:
     def __init__(self, suit: Suit, rank: int):
         self.suit = suit
@@ -63,10 +68,10 @@ class PitchEnv(gym.Env):
         self.scores = [0, 0]
         self.current_bid = 0
         self.current_high_bidder = 0
-        self.dealer = self.np_random.integers(4)
+        self.dealer = self.np_random.integers(0,4,endpoint=False)
         self.current_player = (self.dealer + 1) % 4
         self.trump_suit = None
-        self.phase = 0  
+        self.phase = Phase.BIDDING
         self.tricks = []
         self.played_cards = []
         self.current_trick = []
@@ -79,27 +84,35 @@ class PitchEnv(gym.Env):
         info = {}
         return observation, info
 
-    def print_state(self):
+    def print_state(self): #sometimes you just gotta debug
         strn = '\nCurrent State: \n'
         strn += 'Current Phase: ' + str(self.phase) + '\n'
         strn += 'Current Bid: ' + str(self.current_bid) + '\n'
         strn += 'Current Bidder: ' + str(self.current_high_bidder) + '\n'
         strn += 'Dealer: ' + str(self.dealer) + '\n'
         strn += 'Current Player: ' + str(self.current_player) + '\n'
+        strn += f'Player 0 hand: {list(map(lambda card: (card.suit,card.rank),self.hands[0]))}\n'
+        strn += f'Player 1 hand: {list(map(lambda card: (card.suit,card.rank),self.hands[1]))}\n'
+        strn += f'Player 2 hand: {list(map(lambda card: (card.suit,card.rank),self.hands[2]))}\n'
+        strn += f'Player 3 hand: {list(map(lambda card: (card.suit,card.rank),self.hands[3]))}\n'
+        strn += f'Trump suit: {self.trump_suit}\n'
+        strn += f'Current Trick: {list(map(lambda tuple: (tuple[0].suit,tuple[0].rank,tuple[1]),self.current_trick))}\n'
+        strn += f'Current round scores: {self.round_scores}\n'
+        strn += f'Current action mask: {self._get_action_mask()}'
         print(strn)
         return
         
-    def step(self, action):
+    def step(self, action, current_obs):
         observation = self._get_observation()
         if observation['action_mask'][action] == 0:
             valid_actions = np.where(observation['action_mask'] == 1)[0]
             action = self.np_random.choice(valid_actions)
 
-        if self.phase == 0:  # Bidding phase
+        if self.phase == Phase.BIDDING:  # Bidding phase
             self._handle_bid(action)
-        if self.phase == 1:
+        elif self.phase == Phase.CHOOSESUIT:
             self._handle_choose_suit(action)
-        elif self.phase == 2:  # Playing phase
+        elif self.phase == Phase.PLAYING:  # Playing phase
             self._handle_play(action)
 
 
@@ -108,7 +121,8 @@ class PitchEnv(gym.Env):
         reward = self._calculate_reward()
         observation = self._get_observation()
         info = {}
-
+        if (len(observation) != len(current_obs)):
+            print('we got issues')
         return observation, reward, terminated, truncated, info
 
     def _create_deck(self):
@@ -127,22 +141,27 @@ class PitchEnv(gym.Env):
             self.current_bid = action - 6
             self.current_high_bidder = self.current_player
         elif (action != 10):
-            return Exception("invalid action passed to handle bid!")
+            raise Exception(f"invalid action passed to handle bid. Action: {action}")
         
         self.current_player = (self.current_player + 1) % 4
-        if self.current_player == (self.dealer + 1) % 4:
-            self.phase = 1  # Move to choosing suit phase
+        if self.current_player == (self.dealer):
+            self.current_player = self.current_high_bidder
+            self.phase = Phase.CHOOSESUIT  # Move to choosing suit phase
 
     def _handle_choose_suit(self,action):
         if (self.current_player == self.current_high_bidder):
+            if (not (19 <= action < 23)):
+                raise Exception(f"invalid bid action from winning bidder. action: {action}")
             self.trump_suit = action-19
-            self.phase = 2
+            self.phase = Phase.PLAYING
+            return
         self.current_player = (self.current_player + 1) % 4
 
     def _no_more_valid_plays_any_hand(self):
         for i in range(0,4):
             for j in range(0,len(self.hands[i])):
                 if (self._is_valid_play(self.hands[i][j])):
+                    print('Thought that there were no more valid plays anywhere!')
                     return False
         return True        
         
@@ -177,9 +196,9 @@ class PitchEnv(gym.Env):
             #bidder team fill phase
             sortLambda = lambda x: 0 if self._is_valid_play(x) else 1 # put the invalid cards at the back of the hand
             bidderInvalidCount = len(filter(lambda card: not self._is_valid_play(card),self.hands[self.current_high_bidder]))
-            bidderPartnerInvalidCount = len(filter(lambda card: not self._is_valid_play(card),self.hands[self.current_high_bidder + 2 % 4]))
+            bidderPartnerInvalidCount = len(filter(lambda card: not self._is_valid_play(card),self.hands[(self.current_high_bidder + 2) % 4]))
             self.hands[self.current_high_bidder].sort(key=sortLambda)
-            self.hands[self.current_high_bidder + 2 % 4].sort(key=sortLambda)
+            self.hands[(self.current_high_bidder + 2) % 4].sort(key=sortLambda)
             while (bidderInvalidCount > 0 and self.deck.count() > 0):
                 if (bidderInvalidCount == self.deck.count()):
                     for x in range(0,bidderInvalidCount):
@@ -195,14 +214,14 @@ class PitchEnv(gym.Env):
             else:
                 cardsToAddToPartner = filter(lambda card: self._is_valid_play(card),self.deck)
                 if (len(cardsToAddToPartner) > bidderPartnerInvalidCount):
-                    self.hands[self.current_high_bidder + 2 % 4] = filter(lambda card: self.hands[self.current_high_bidder + 2 % 4])
-                    self.hands[self.current_high_bidder + 2 % 4] = self.hands[self.current_high_bidder + 2 % 4] + cardsToAddToPartner
-                    self.player_cards_taken[self.current_high_bidder + 2 % 4] = len(cardsToAddToPartner)
+                    self.hands[(self.current_high_bidder + 2) % 4] = filter(lambda card: self.hands[(self.current_high_bidder + 2) % 4])
+                    self.hands[(self.current_high_bidder + 2) % 4] = self.hands[(self.current_high_bidder + 2) % 4] + cardsToAddToPartner
+                    self.player_cards_taken[(self.current_high_bidder + 2) % 4] = len(cardsToAddToPartner)
                 else:
                     for x in range(len(cardsToAddToPartner)):
-                        self.hands[self.current_high_bidder + 2 % 4].pop()
-                        self.hands[self.current_high_bidder + 2 % 4].insert(0,cardsToAddToPartner.pop())
-                    self.player_cards_taken[self.current_high_bidder + 2 % 4] = len(cardsToAddToPartner + 1) #TODO check on this
+                        self.hands[(self.current_high_bidder + 2) % 4].pop()
+                        self.hands[(self.current_high_bidder + 2) % 4].insert(0,cardsToAddToPartner.pop())
+                    self.player_cards_taken[(self.current_high_bidder + 2) % 4] = len(cardsToAddToPartner + 1) #TODO check on this
 
     def _end_round(self):
         #add the scores up
@@ -218,7 +237,7 @@ class PitchEnv(gym.Env):
             else:
                 self.scores[self.current_high_bidder % 2] -= 20 if self.current_bid == 11 else 40
         self.scores[(self.current_high_bidder + 1) % 2] += self.round_scores[(self.current_high_bidder + 1) % 2]
-        self.dealer = self.dealer + 1 % 4
+        self.dealer = (self.dealer + 1) % 4
         self.deck = self._create_deck()
         self.hands = [[] for _ in range(4)]
         self.round_scores = [0,0]
@@ -226,7 +245,7 @@ class PitchEnv(gym.Env):
         self.current_high_bidder = 0
         self.current_player = (self.dealer + 1) % 4
         self.trump_suit = None
-        self.phase = 0  
+        self.phase = Phase.BIDDING
         self.tricks = []
         self.played_cards = []
         self.current_trick = []
@@ -241,13 +260,10 @@ class PitchEnv(gym.Env):
     def _resolve_trick(self):
         winning_card_player_tuple = max(self.current_trick, key=lambda c: (self._is_valid_play(c[0]), c[0].rank))
         self.trick_winner = winning_card_player_tuple[1]
-
         self.tricks.append(self.current_trick)
         self.current_trick = []
         self.current_player = self.trick_winner
-
         trick_points = sum(self._card_points(tuple[0]) for tuple in self.tricks[-1])
-        #TODO include tmp score here, change actual score later 
         self.round_scores[self.trick_winner % 2] += trick_points
 
     def _card_points(self, card):
@@ -276,8 +292,9 @@ class PitchEnv(gym.Env):
         return {
             'hand': np.array([(card.suit.value if card.suit else 4, card.rank) for card in self.hands[self.current_player]]),
             'played_cards': np.array([(card.suit.value if card.suit else 4, card.rank) for card in self.played_cards]),
-            'tricks': np.array([(tuple[0].suit.value if tuple[0].suit else 4, tuple[0].rank) for tuple in self.current_trick]),
             'scores': np.array(self.scores),
+            'round_scores': np.array(self.round_scores),
+            'current_trick': np.array([(tuple[0].suit.value if tuple[0].suit else 4, tuple[0].rank, tuple[1]) for tuple in self.current_trick]),
             'current_bid': self.current_bid,
             'current_high_bidder': self.current_high_bidder,
             'dealer': self.dealer,
@@ -291,7 +308,7 @@ class PitchEnv(gym.Env):
 
     def _get_action_mask(self):
         mask = np.zeros(self.num_actions, dtype=np.int8) #17 = shoot moon
-        if self.phase == 0:  # Bidding phase
+        if self.phase == Phase.BIDDING:  # Bidding phase
             currentBidAsMask = self.current_bid + 6
             if (self.current_bid == 0):
                 mask[10] = self.current_player != self.dealer
@@ -302,9 +319,9 @@ class PitchEnv(gym.Env):
             if (self.current_player == self.dealer):
                 if (currentBidAsMask == 14):
                     mask[18] = 1 # double shoot
-        elif self.phase == 1: # suit selection phase
+        elif self.phase == Phase.CHOOSESUIT: # suit selection phase
             mask[19:23] = 1
-        elif self.phase == 2: # Playing phase
+        elif self.phase == Phase.PLAYING: # Playing phase
             anyTrue = False  
             for i, card in enumerate(self.hands[self.current_player]):
                 if self._is_valid_play(card):
@@ -313,6 +330,10 @@ class PitchEnv(gym.Env):
             if not anyTrue:
                 mask = np.zeros(self.num_actions, dtype=np.int8)
                 mask[23] = 1
+        if (len(np.where(mask == 1)) == 0):
+            print('something failed')
+            raise Exception
+        
         return mask
     
     def _is_off_jack(self,card):

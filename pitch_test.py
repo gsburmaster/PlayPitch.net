@@ -1,6 +1,6 @@
 import unittest
 import numpy as np
-from pitch_env import PitchEnv, Card, Suit
+from pitch_env import Phase, PitchEnv, Card, Suit
 
 class TestPitchEnv(unittest.TestCase):
 
@@ -193,6 +193,14 @@ class TestPitchEnv(unittest.TestCase):
         mask = self.env._get_action_mask()
         self.assertEqual(mask.tolist(), [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1])  # Can play nothing
 
+    def test_get_action_mask_multiple_plays_joker_first(self):
+        self.env.reset()
+        self.env.phase = 2
+        self.env.trump_suit = 1
+        self.env.hands[self.env.current_player] = [Card(Suit.HEARTS, 6), Card(Suit.HEARTS, 2), Card(Suit.SPADES, 14), Card(Suit.HEARTS, 7), (None, 11), Card(Suit.CLUBS, 5), Card(Suit.HEARTS, 3), Card(Suit.SPADES, 4), Card(Suit.DIAMONDS, 15)]
+        mask = self.env._get_action_mask()
+        self.assertEqual(mask.tolist(),[0,0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0])
+
 
     def test_end_round_made_bid(self):
         self.env.reset()
@@ -206,7 +214,7 @@ class TestPitchEnv(unittest.TestCase):
         self.env.round_scores = [7,3]
         self.env.number_of_rounds_played = 9
         self.env._end_round()
-        self.assertEqual(self.env.phase,0)
+        self.assertEqual(self.env.phase,Phase.BIDDING)
         self.assertEqual(self.env.scores,[8,4])
         self.assertEqual(self.env.number_of_rounds_played, 10)
         self.assertEqual(self.env.current_bid,0)
@@ -227,7 +235,7 @@ class TestPitchEnv(unittest.TestCase):
         self.env.round_scores = [4,6]
         self.env.number_of_rounds_played = 9
         self.env._end_round()
-        self.assertEqual(self.env.phase,0)
+        self.assertEqual(self.env.phase,Phase.BIDDING)
         self.assertEqual(self.env.scores,[-4,7])
         self.assertEqual(self.env.number_of_rounds_played, 10)
         self.assertEqual(self.env.current_bid,0)

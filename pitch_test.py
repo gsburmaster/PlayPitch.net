@@ -9,7 +9,7 @@ class TestPitchEnv(unittest.TestCase):
 
     def test_reset(self):
         obs, _ = self.env.reset()
-        self.assertEqual(self.env.phase, 0)
+        self.assertEqual(self.env.phase, Phase.BIDDING)
         self.assertEqual(len(self.env.hands[0]), 9)
         self.assertEqual(len(self.env.hands[1]), 9)
         self.assertEqual(len(self.env.hands[2]), 9)
@@ -35,15 +35,15 @@ class TestPitchEnv(unittest.TestCase):
 
     def test_handle_suit_choice(self):
         self.env.reset()
-        self.env.phase = 1
+        self.env.phase = Phase.CHOOSESUIT
         self.env.current_high_bidder = self.env.current_player
         self.env._handle_choose_suit(19)  # Choose Hearts
         self.assertEqual(self.env.trump_suit, 0)
-        self.assertEqual(self.env.phase, 2)
+        self.assertEqual(self.env.phase, Phase.PLAYING)
 
     def test_handle_play(self):
         self.env.reset()
-        self.env.phase = 2
+        self.env.phase = Phase.PLAYING
         initial_hand_size = len(self.env.hands[self.env.current_player])
         self.env._handle_play(0)  # Play first card in hand
         self.assertEqual(len(self.env.hands[(self.env.current_player+3) % 4]), initial_hand_size - 1)
@@ -54,13 +54,13 @@ class TestPitchEnv(unittest.TestCase):
         self.env.reset()
         self.env.trump_suit = Suit.HEARTS
         self.env.hands[self.env.dealer] = [Card(Suit.HEARTS,3)]
-        self.env.phase = 2
+        self.env.phase = Phase.PLAYING
         self.env._handle_play(23) 
         self.assertEqual(self.env.playing_iterator,1)
 
     def test_handle_play_only_2_cards(self):
         self.env.reset()
-        self.env.phase = 2
+        self.env.phase = Phase.PLAYING
         self.env.current_trick = [
             Card(Suit.HEARTS,3)
         ]
@@ -108,6 +108,14 @@ class TestPitchEnv(unittest.TestCase):
         self.assertEqual(len(self.env.tricks), 1)
         self.assertEqual(self.env.round_scores[1], 1)  # 0 points 
 
+    def test_action_mask_hand(self):
+        self.env.reset()
+        self.env.trump_suit = Suit.DIAMONDS
+        self.env.phase = Phase.PLAYING
+        self.env.current_player = 1
+        self.env.hands[1] = [Card(Suit.HEARTS, 7),Card(Suit.DIAMONDS, 8),Card(Suit.DIAMONDS, 13),Card(Suit.CLUBS, 7),Card(Suit.HEARTS, 4),Card(Suit.CLUBS, 14),Card(Suit.CLUBS, 5),Card(Suit.HEARTS, 13),Card(Suit.SPADES, 7)]
+        out = self.env._get_action_mask()
+        self.assertEqual(out[0:9].tolist(),[0,1,1,0,0,0,0,0,0])
 
     def test_resolve_trick_off_jack_wins(self):
         self.env.reset()
@@ -173,13 +181,13 @@ class TestPitchEnv(unittest.TestCase):
 
     def test_get_action_mask_suit_choice(self):
         self.env.reset()
-        self.env.phase = 1
+        self.env.phase = Phase.CHOOSESUIT
         mask = self.env._get_action_mask()
         self.assertEqual(mask[19:23].tolist(), [1, 1, 1, 1])  # Can choose any suit
 
     def test_get_action_mask_playing(self):
         self.env.reset()
-        self.env.phase = 2
+        self.env.phase = Phase.PLAYING
         self.env.trump_suit = Suit.HEARTS
         self.env.hands[self.env.current_player] = [Card(Suit.HEARTS, 7), Card(Suit.CLUBS, 8)]
         mask = self.env._get_action_mask()
@@ -187,7 +195,7 @@ class TestPitchEnv(unittest.TestCase):
 
     def test_get_action_mask_playing_no_valid(self):
         self.env.reset()
-        self.env.phase = 2
+        self.env.phase = Phase.PLAYING
         self.env.trump_suit = Suit.HEARTS
         self.env.hands[self.env.current_player] = [Card(Suit.SPADES, 7), Card(Suit.CLUBS, 8)]
         mask = self.env._get_action_mask()
@@ -195,16 +203,16 @@ class TestPitchEnv(unittest.TestCase):
 
     def test_get_action_mask_multiple_plays_joker_first(self):
         self.env.reset()
-        self.env.phase = 2
-        self.env.trump_suit = 1
-        self.env.hands[self.env.current_player] = [Card(Suit.HEARTS, 6), Card(Suit.HEARTS, 2), Card(Suit.SPADES, 14), Card(Suit.HEARTS, 7), (None, 11), Card(Suit.CLUBS, 5), Card(Suit.HEARTS, 3), Card(Suit.SPADES, 4), Card(Suit.DIAMONDS, 15)]
+        self.env.phase = Phase.PLAYING
+        self.env.trump_suit = Suit.DIAMONDS
+        self.env.hands[self.env.current_player] = [Card(Suit.HEARTS, 6), Card(Suit.HEARTS, 2), Card(Suit.SPADES, 14), Card(Suit.HEARTS, 7), Card(None, 11), Card(Suit.CLUBS, 5), Card(Suit.HEARTS, 3), Card(Suit.SPADES, 4), Card(Suit.DIAMONDS, 15)]
         mask = self.env._get_action_mask()
         self.assertEqual(mask.tolist(),[0,0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0])
 
 
     def test_end_round_made_bid(self):
         self.env.reset()
-        self.env.phase = 2
+        self.env.phase = Phase.PLAYING
         self.env.dealer = 0
         self.env.trump_suit = Suit.HEARTS
         self.env.hands[self.env.current_player] = [Card(Suit.SPADES,4),Card(Suit.DIAMONDS,9)]
@@ -225,7 +233,7 @@ class TestPitchEnv(unittest.TestCase):
         
     def test_end_round_went_set(self):
         self.env.reset()
-        self.env.phase = 2
+        self.env.phase = Phase.PLAYING
         self.env.dealer = 0
         self.env.trump_suit = Suit.HEARTS
         self.env.hands[self.env.current_player] = [Card(Suit.SPADES,4),Card(Suit.DIAMONDS,9)]

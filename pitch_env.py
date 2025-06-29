@@ -146,8 +146,9 @@ class PitchEnv(gym.Env):
         f.write(outStr)
         f.close()
 
-        
-
+        #TODO write loader for game state that takes in a json string
+    def loadStateFromJsonString(self,json: str):
+        pass
         
     def step(self, action, current_obs):
         observation = self._get_observation()

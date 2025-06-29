@@ -1,9 +1,10 @@
 import sys
 import gymnasium as gym
 import numpy as np
+import os as os;
 from enum import Enum
 from typing import List, Tuple, Dict
-
+import json
 
 #TODO LIST
 # - fix mask numbers
@@ -35,6 +36,23 @@ class Card:
 
     def __lt__(self, other):
         return self.rank < other.rank
+    
+    def default(self):
+        return {'suit': self.suit, 'rank': self.rank}
+
+class CardEncoder(json.JSONEncoder):
+    def default(self,o):
+        if (isinstance(o,Card)):
+            return o.default()
+        if (isinstance(o,Suit)):
+            return o.value
+        if (isinstance(o,Phase)):
+            return o.value
+        if (isinstance(o,np.int8) or isinstance(o,np.int64)):
+            return int(o)
+        return super().default(o)
+        
+
 
 class PitchEnv(gym.Env):
     def __init__(self):
@@ -101,6 +119,35 @@ class PitchEnv(gym.Env):
         strn += f'Current action mask: {self._get_action_mask()}'
         print(strn)
         return
+    
+    def saveStateToFileAsJson(self,fileName: str):
+        tmpExtension: int = 0 
+        while (os.path.exists('./' + fileName + str(tmpExtension))):
+            tmpExtension += 1
+        outPutState: dict = {'deck': self.deck,
+                       'hands': self.hands,
+                       'round_scores': self.round_scores,
+                       'scores': self.scores,
+                       'current_bid': self.current_bid,
+                       'current_high_bidder': self.current_high_bidder,
+                       'dealer': self.dealer,
+                       'current_player': self.current_player,
+                       'trump_suit': self.trump_suit,
+                       'phase': self.phase,
+                       'tricks': self.tricks,
+                       'played_cards': self.played_cards,
+                       'current_trick': self.current_trick,
+                       'trick_winner': self.trick_winner,
+                       'player_cards_taken': self.player_cards_taken,
+                       'number_of_rounds_played': self.number_of_rounds_played,
+                       'playing_iterator': self.playing_iterator}
+        outStr: str = CardEncoder().encode(outPutState)
+        f = open('./' + fileName + str(tmpExtension) + '.json','w')
+        f.write(outStr)
+        f.close()
+
+        
+
         
     def step(self, action, current_obs):
         observation = self._get_observation()

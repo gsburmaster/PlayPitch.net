@@ -111,10 +111,8 @@ def train_agents(num_episodes=10000):
                 agents[current_player].remember(state, action, reward, next_state, done)
                 agents[current_player].replay(env)
             except RuntimeError:
-                print(f'\n\nstate len: {len(state)}' )
-                print(f'next state len: {len(next_state)}')
-                flatten_observation(obs,debug = True)
                 env.print_state()
+                env.saveStateToFileAsJson('jsonErr')
                 raise Exception
             obs = next_obs
             total_reward[current_player] += reward

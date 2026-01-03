@@ -4,6 +4,7 @@ import numpy as np
 import os as os;
 from enum import Enum
 from typing import List, Tuple, Dict
+from pydantic import BaseModel
 import json
 
 #TODO LIST
@@ -54,7 +55,7 @@ class CardEncoder(json.JSONEncoder):
         
 
 
-class PitchEnv(gym.Env):
+class PitchEnv(gym.Env,BaseModel):
     def __init__(self):
         super(PitchEnv, self).__init__()
         self.played_cards = []
@@ -190,14 +191,8 @@ class PitchEnv(gym.Env):
         f.write(outStr)
         f.close()
 
-        #TODO write loader for game state that takes in a json string
     def loadStateFromJsonString(self,jsonStr: str):
-        dict = json.loads(jsonStr)
-        def objectHook(dict: Dict):
-            dict['deck'] = list(map(lambda deckCard: Card(deckCard.suit,deckCard.rank) ,dict['deck']))
-
-        
-        
+        self.model_validate_json(jsonStr)
         pass
         
     def step(self, action, current_obs):

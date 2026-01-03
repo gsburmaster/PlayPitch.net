@@ -1,5 +1,7 @@
 {
   "dependencies": {
-    "express": "^4.21.2"
+    "@types/express": "^5.0.0",
+    "express": "^4.21.2",
+    "onnxruntime-node": "^1.20.1"
   }
 }

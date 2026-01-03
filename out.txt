@@ -1,0 +1,595 @@
+Final flattened state size: 53
+Actual state dimension: 53
+initial input dimention for layer 1: 53
+initial input dimention for layer 1: 53
+initial input dimention for layer 1: 53
+initial input dimention for layer 1: 53
+initial input dimention for layer 1: 53
+initial input dimention for layer 1: 53
+initial input dimention for layer 1: 53
+initial input dimention for layer 1: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Thought that there were no more valid plays anywhere!
+Final flattened state size: 53
+Final flattened state size: 53
+Thought that there were no more valid plays anywhere!
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 58
+Final flattened state size: 58
+Final flattened state size: 55
+Final flattened state size: 55
+
+scores: Team 1: -8 Team 2: 0
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+
+scores: Team 1: -8 Team 2: -20
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Thought that there were no more valid plays anywhere!
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 58
+Final flattened state size: 58
+Final flattened state size: 63
+Final flattened state size: 63
+Final flattened state size: 55
+Final flattened state size: 55
+
+scores: Team 1: -6 Team 2: -29
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 58
+Final flattened state size: 58
+Final flattened state size: 58
+Final flattened state size: 58
+Final flattened state size: 63
+Final flattened state size: 63
+Final flattened state size: 57
+Final flattened state size: 57
+
+scores: Team 1: -6 Team 2: -38
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 58
+Final flattened state size: 58
+Final flattened state size: 58
+Final flattened state size: 58
+Final flattened state size: 58
+Final flattened state size: 58
+Final flattened state size: 57
+Final flattened state size: 57
+
+scores: Team 1: -15 Team 2: -38
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Thought that there were no more valid plays anywhere!
+Final flattened state size: 53
+Final flattened state size: 53
+Thought that there were no more valid plays anywhere!
+Final flattened state size: 53
+Final flattened state size: 53
+Thought that there were no more valid plays anywhere!
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 55
+Final flattened state size: 55
+Thought that there were no more valid plays anywhere!
+Final flattened state size: 55
+Final flattened state size: 55
+Thought that there were no more valid plays anywhere!
+Final flattened state size: 55
+Final flattened state size: 55
+Thought that there were no more valid plays anywhere!
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 57
+Final flattened state size: 57
+
+scores: Team 1: -13 Team 2: -47
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Thought that there were no more valid plays anywhere!
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 58
+Final flattened state size: 58
+Final flattened state size: 63
+Final flattened state size: 63
+Final flattened state size: 55
+Final flattened state size: 55
+
+scores: Team 1: -22 Team 2: -45
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 58
+Final flattened state size: 58
+Final flattened state size: 58
+Final flattened state size: 58
+Final flattened state size: 58
+Final flattened state size: 58
+Final flattened state size: 55
+Final flattened state size: 55
+
+scores: Team 1: -22 Team 2: -53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Thought that there were no more valid plays anywhere!
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 58
+Final flattened state size: 58
+Final flattened state size: 58
+Final flattened state size: 58
+Final flattened state size: 55
+Final flattened state size: 55
+
+scores: Team 1: -21 Team 2: -63
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Thought that there were no more valid plays anywhere!
+Final flattened state size: 53
+Final flattened state size: 53
+Thought that there were no more valid plays anywhere!
+Final flattened state size: 53
+Final flattened state size: 53
+Thought that there were no more valid plays anywhere!
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 55
+Final flattened state size: 55
+
+scores: Team 1: -20 Team 2: -83
+Final flattened state size: 53
+Episode: 0, Rewards: [np.float64(-271.80000000000007), np.float64(2199.0), np.float64(-282.0), np.float64(119.4)]
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Thought that there were no more valid plays anywhere!
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 58
+Final flattened state size: 58
+Final flattened state size: 63
+Final flattened state size: 63
+Final flattened state size: 55
+Final flattened state size: 55
+
+scores: Team 1: 2 Team 2: -9
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+
+scores: Team 1: -18 Team 2: -9
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Thought that there were no more valid plays anywhere!
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 58
+Final flattened state size: 58
+Final flattened state size: 58
+Final flattened state size: 58
+Final flattened state size: 57
+Final flattened state size: 57
+
+scores: Team 1: -16 Team 2: -29
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 58
+Final flattened state size: 58
+Final flattened state size: 58
+Final flattened state size: 58
+Final flattened state size: 58
+Final flattened state size: 58
+Final flattened state size: 55
+Final flattened state size: 55
+Thought that there were no more valid plays anywhere!
+Final flattened state size: 55
+Final flattened state size: 55
+Thought that there were no more valid plays anywhere!
+Final flattened state size: 55
+Final flattened state size: 55
+Thought that there were no more valid plays anywhere!
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 57
+Final flattened state size: 57
+
+scores: Team 1: -16 Team 2: -37
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 58
+Final flattened state size: 58
+Final flattened state size: 63
+Final flattened state size: 63
+Final flattened state size: 63
+Final flattened state size: 63
+Final flattened state size: 55
+Final flattened state size: 55
+
+scores: Team 1: -24 Team 2: -37
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+
+scores: Team 1: -24 Team 2: -47
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 58
+Final flattened state size: 58
+Final flattened state size: 58
+Final flattened state size: 58
+Final flattened state size: 63
+Final flattened state size: 63
+Final flattened state size: 57
+Final flattened state size: 57
+
+scores: Team 1: -44 Team 2: -47
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Thought that there were no more valid plays anywhere!
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 58
+Final flattened state size: 58
+Final flattened state size: 63
+Final flattened state size: 63
+Final flattened state size: 55
+Final flattened state size: 55
+
+scores: Team 1: -53 Team 2: -45
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Thought that there were no more valid plays anywhere!
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 58
+Final flattened state size: 58
+Final flattened state size: 58
+Final flattened state size: 58
+Final flattened state size: 55
+Final flattened state size: 55
+Thought that there were no more valid plays anywhere!
+Final flattened state size: 55
+Final flattened state size: 55
+Thought that there were no more valid plays anywhere!
+Final flattened state size: 55
+Final flattened state size: 55
+Thought that there were no more valid plays anywhere!
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 57
+Final flattened state size: 57
+
+scores: Team 1: -73 Team 2: -43
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Thought that there were no more valid plays anywhere!
+Final flattened state size: 53
+Final flattened state size: 53
+Thought that there were no more valid plays anywhere!
+Final flattened state size: 53
+Final flattened state size: 53
+Thought that there were no more valid plays anywhere!
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 55
+Final flattened state size: 55
+
+scores: Team 1: -72 Team 2: -51
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Thought that there were no more valid plays anywhere!
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 58
+Final flattened state size: 58
+Final flattened state size: 63
+Final flattened state size: 63
+Final flattened state size: 55
+Final flattened state size: 55
+
+scores: Team 1: -80 Team 2: -49
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 58
+Final flattened state size: 58
+Final flattened state size: 58
+Final flattened state size: 58
+Final flattened state size: 63
+Final flattened state size: 63
+Final flattened state size: 57
+Final flattened state size: 57
+
+scores: Team 1: -80 Team 2: -59
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Thought that there were no more valid plays anywhere!
+Final flattened state size: 53
+Final flattened state size: 53
+Thought that there were no more valid plays anywhere!
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 58
+Final flattened state size: 58
+Final flattened state size: 55
+Final flattened state size: 55
+
+scores: Team 1: -80 Team 2: -67
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+
+scores: Team 1: -80 Team 2: -75
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Thought that there were no more valid plays anywhere!
+Final flattened state size: 53
+Final flattened state size: 53
+Thought that there were no more valid plays anywhere!
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 58
+Final flattened state size: 58
+Final flattened state size: 55
+Final flattened state size: 55
+
+scores: Team 1: -80 Team 2: -85
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+
+scores: Team 1: -80 Team 2: -93
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Thought that there were no more valid plays anywhere!
+Final flattened state size: 53
+Final flattened state size: 53
+Thought that there were no more valid plays anywhere!
+Final flattened state size: 53
+Final flattened state size: 53
+Thought that there were no more valid plays anywhere!
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 55
+Final flattened state size: 55
+
+scores: Team 1: -90 Team 2: -92
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+Final flattened state size: 53
+
+
+state len: 53
+next state len: 53
+
+Current State: 
+Current Phase: 1
+Current Bid: 9
+Current Bidder: 1
+Dealer: 2
+Current Player: 1
+Player 0 hand: [(<Suit.SPADES: 3>, 2), (<Suit.HEARTS: 0>, 6), (<Suit.HEARTS: 0>, 2), (<Suit.HEARTS: 0>, 12), (<Suit.CLUBS: 2>, 13), (<Suit.HEARTS: 0>, 15), (<Suit.HEARTS: 0>, 5), (<Suit.CLUBS: 2>, 5), (<Suit.SPADES: 3>, 5)]
+Player 1 hand: [(<Suit.DIAMONDS: 1>, 6), (<Suit.DIAMONDS: 1>, 3), (<Suit.DIAMONDS: 1>, 7), (<Suit.DIAMONDS: 1>, 5), (<Suit.HEARTS: 0>, 8), (<Suit.HEARTS: 0>, 14), (<Suit.DIAMONDS: 1>, 4), (<Suit.SPADES: 3>, 6), (<Suit.SPADES: 3>, 4)]
+Player 2 hand: [(<Suit.DIAMONDS: 1>, 2), (<Suit.CLUBS: 2>, 7), (<Suit.CLUBS: 2>, 12), (None, 11), (<Suit.CLUBS: 2>, 2), (<Suit.HEARTS: 0>, 7), (<Suit.SPADES: 3>, 8), (<Suit.HEARTS: 0>, 9), (<Suit.DIAMONDS: 1>, 14)]
+Player 3 hand: [(<Suit.DIAMONDS: 1>, 15), (<Suit.CLUBS: 2>, 10), (<Suit.HEARTS: 0>, 4), (<Suit.SPADES: 3>, 14), (None, 11), (<Suit.HEARTS: 0>, 13), (<Suit.DIAMONDS: 1>, 13), (<Suit.SPADES: 3>, 10), (<Suit.DIAMONDS: 1>, 9)]
+Trump suit: None
+Current Trick: []
+Current round scores: [0, 0]
+Current action mask: [0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 1 1 1 0]

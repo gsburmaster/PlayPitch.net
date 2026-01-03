@@ -78,6 +78,50 @@ class PitchEnv(gym.Env):
         })
         self.reset()
 
+    def __init__(self, deck: Card, hands, round_scores,
+                 scores, current_bid, current_high_bidder, dealer, current_player,
+                 trump_suit,phase,tricks,played_cards,current_trick,trick_winner,
+                 player_cards_taken, number_of_rounds_played, playing_iterator):
+        super(PitchEnv, self).__init__()
+        self.played_cards = []
+        self.num_actions = 24  # 10 for cards in hand, 9 for possible bids (pass, 5-10, shoot the moon, double shoot the moon), 4 for choosing suit, one for no valid play
+        self.action_space = gym.spaces.Discrete(self.num_actions)
+        self.observation_space = gym.spaces.Dict({
+            'hand': gym.spaces.Box(low=0, high=15, shape=(10, 2), dtype=np.int8), # possible to have up to ten cards
+            'tricks': gym.spaces.Box(low=0, high=15, shape=(4, 2), dtype=np.int8), 
+            'round_scores': gym.spaces.Box(low=0,high=10,shape=(2,), dtype=np.int8), # temporary score used to evaluate if you made your bid or not
+            'played_cards': gym.spaces.Box(low=0, high=15, shape=(16, 2), dtype=np.int8),
+            'scores': gym.spaces.Box(low=0, high=54, shape=(2,), dtype=np.int8),
+            'current_bid': gym.spaces.Discrete(9),  # 0,5-10,moon,double moon where 0 means no bid yet
+            'current_high_bidder': gym.spaces.Discrete(5), #no bid or 1-4
+            'dealer': gym.spaces.Discrete(4),
+            'number_of_rounds_played': gym.spaces.Box(low=0,high=2**63 - 2, dtype=np.uint64), # how many rounds has the game gone
+            'current_player': gym.spaces.Discrete(4),
+            'player_cards_taken': gym.spaces.Box(low=-1,high=10, shape=(4,),dtype=np.int8),
+            'trump_suit': gym.spaces.Discrete(5),  # 0-3 for suits, 4 for no trump
+            'phase': gym.spaces.Discrete(3),  # 0: bidding, 1: choosing suit, 2: playing
+            'action_mask': gym.spaces.Box(low=0, high=1, shape=(self.num_actions,), dtype=np.int8)
+        })
+        try:
+            self.deck = deck
+            self.hands = hands
+            self.round_scores = round_scores
+            self.scores = scores
+            self.current_bid = current_bid
+            self.current_high_bidder = current_high_bidder
+            self.dealer = dealer
+            self.current_player = current_player
+            self.trump_suit = trump_suit
+            self.phase = phase
+            self.tricks = tricks
+            self.played_cards = played_cards
+            self.current_trick = current_trick
+        except:
+            raise Exception("Unable to load game state from inputted arguments")
+        return
+    
+    # write a constructor that takes in each of the arguments then use **var in json decoder def __init__(self,)
+
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         self.deck = self._create_deck()
@@ -147,7 +191,13 @@ class PitchEnv(gym.Env):
         f.close()
 
         #TODO write loader for game state that takes in a json string
-    def loadStateFromJsonString(self,json: str):
+    def loadStateFromJsonString(self,jsonStr: str):
+        dict = json.loads(jsonStr)
+        def objectHook(dict: Dict):
+            dict['deck'] = list(map(lambda deckCard: Card(deckCard.suit,deckCard.rank) ,dict['deck']))
+
+        
+        
         pass
         
     def step(self, action, current_obs):

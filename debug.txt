@@ -1,0 +1,155 @@
+Actual state dimension: 52
+initial input dimention for layer 1: 52
+initial input dimention for layer 1: 52
+initial input dimention for layer 1: 52
+initial input dimention for layer 1: 52
+initial input dimention for layer 1: 52
+initial input dimention for layer 1: 52
+initial input dimention for layer 1: 52
+initial input dimention for layer 1: 52
+Thought that there were no more valid plays anywhere!
+Thought that there were no more valid plays anywhere!
+Thought that there were no more valid plays anywhere!
+
+scores: Team 1: -20 Team 2: 0
+
+scores: Team 1: -20 Team 2: -20
+
+scores: Team 1: -30 Team 2: -20
+Thought that there were no more valid plays anywhere!
+
+scores: Team 1: -29 Team 2: -40
+Thought that there were no more valid plays anywhere!
+
+scores: Team 1: -39 Team 2: -38
+Thought that there were no more valid plays anywhere!
+
+scores: Team 1: -38 Team 2: -44
+Thought that there were no more valid plays anywhere!
+Thought that there were no more valid plays anywhere!
+
+scores: Team 1: -38 Team 2: -52
+Thought that there were no more valid plays anywhere!
+Thought that there were no more valid plays anywhere!
+Thought that there were no more valid plays anywhere!
+
+scores: Team 1: -37 Team 2: -72
+Thought that there were no more valid plays anywhere!
+Thought that there were no more valid plays anywhere!
+
+scores: Team 1: -37 Team 2: -81
+
+scores: Team 1: -46 Team 2: -81
+
+scores: Team 1: -46 Team 2: -89
+Thought that there were no more valid plays anywhere!
+Thought that there were no more valid plays anywhere!
+Thought that there were no more valid plays anywhere!
+
+scores: Team 1: -45 Team 2: -96
+Thought that there were no more valid plays anywhere!
+Thought that there were no more valid plays anywhere!
+Thought that there were no more valid plays anywhere!
+
+scores: Team 1: -44 Team 2: -105
+Episode: 0, Rewards: [np.float64(-397.40000000000003), np.float64(-0.3999999999999915), np.float64(-338.2), np.float64(275.8)]
+Thought that there were no more valid plays anywhere!
+Thought that there were no more valid plays anywhere!
+
+scores: Team 1: 0 Team 2: -20
+Thought that there were no more valid plays anywhere!
+
+scores: Team 1: 2 Team 2: -30
+Thought that there were no more valid plays anywhere!
+Thought that there were no more valid plays anywhere!
+
+scores: Team 1: -7 Team 2: -30
+Thought that there were no more valid plays anywhere!
+Thought that there were no more valid plays anywhere!
+Thought that there were no more valid plays anywhere!
+
+scores: Team 1: -16 Team 2: -29
+Thought that there were no more valid plays anywhere!
+
+scores: Team 1: -15 Team 2: -37
+
+scores: Team 1: -15 Team 2: -47
+Thought that there were no more valid plays anywhere!
+Thought that there were no more valid plays anywhere!
+
+scores: Team 1: -23 Team 2: -47
+
+scores: Team 1: -31 Team 2: -47
+Thought that there were no more valid plays anywhere!
+
+scores: Team 1: -29 Team 2: -56
+
+scores: Team 1: -29 Team 2: -76
+
+scores: Team 1: -29 Team 2: -96
+
+scores: Team 1: -9 Team 2: 0
+
+scores: Team 1: -9 Team 2: -9
+Thought that there were no more valid plays anywhere!
+
+Current State: 
+Current Phase: Phase.PLAYING
+Current Bid: 10
+Current Bidder: 3
+Dealer: 1
+Current Player: 2
+Player 0 hand: [(<Suit.HEARTS: 0>, 6), (<Suit.SPADES: 3>, 14), (<Suit.DIAMONDS: 1>, 7), (<Suit.HEARTS: 0>, 8), (<Suit.DIAMONDS: 1>, 2), (<Suit.HEARTS: 0>, 7), (<Suit.CLUBS: 2>, 3), (<Suit.CLUBS: 2>, 15)]
+Player 1 hand: [(<Suit.SPADES: 3>, 10), (<Suit.DIAMONDS: 1>, 13), (<Suit.CLUBS: 2>, 14), (<Suit.DIAMONDS: 1>, 10), (<Suit.SPADES: 3>, 6), (<Suit.CLUBS: 2>, 4), (<Suit.SPADES: 3>, 15), (<Suit.SPADES: 3>, 2), (<Suit.DIAMONDS: 1>, 6)]
+Player 2 hand: [(<Suit.HEARTS: 0>, 15), (<Suit.DIAMONDS: 1>, 5), (<Suit.HEARTS: 0>, 9), (<Suit.SPADES: 3>, 8), (<Suit.CLUBS: 2>, 5), (<Suit.DIAMONDS: 1>, 15), (<Suit.CLUBS: 2>, 10), (<Suit.SPADES: 3>, 13), (<Suit.CLUBS: 2>, 12)]
+Player 3 hand: [(<Suit.DIAMONDS: 1>, 8), (<Suit.HEARTS: 0>, 4), (<Suit.CLUBS: 2>, 13), (<Suit.SPADES: 3>, 12), (<Suit.DIAMONDS: 1>, 4), (<Suit.HEARTS: 0>, 13), (<Suit.HEARTS: 0>, 5), (<Suit.HEARTS: 0>, 12), (<Suit.DIAMONDS: 1>, 14)]
+Trump suit: 3
+Current Trick: [(None, 11, np.int64(0))]
+Current round scores: [0, 0]
+Current action mask: [0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1]
+[  3   8   4  11   0   9   2   5   2  10   1   7   0   5   3   4   2   2
+   4  11 -15 -47   0   0   4  11   0   8   2   0   1   3   6   0   1   0
+   0   0   0   0   0   0   0   0   0   0   0   0   0   0   0   0   0   0
+   0   0   0]
+
+
+state len: 57
+next state len: 57
+keys:  dict_keys(['hand', 'played_cards', 'scores', 'round_scores', 'current_trick', 'current_bid', 'current_high_bidder', 'dealer', 'current_player', 'trump_suit', 'phase', 'number_of_rounds_played', 'player_cards_taken', 'action_mask'])
+value array shape:  (9, 2)
+value array shape:  (1, 2)
+value array shape:  (2,)
+value array shape:  (2,)
+value array shape:  (1, 3)
+int array val 10
+int array val 3
+int array val 1
+int array val 1
+int array val 3
+int array val 2
+value array shape:  (24,)
+Final flattened state size: 57
+at time of exception current env state: 
+
+
+Current State: 
+Current Phase: Phase.PLAYING
+Current Bid: 10
+Current Bidder: 3
+Dealer: 1
+Current Player: 2
+Player 0 hand: [(<Suit.HEARTS: 0>, 6), (<Suit.SPADES: 3>, 14), (<Suit.DIAMONDS: 1>, 7), (<Suit.HEARTS: 0>, 8), (<Suit.DIAMONDS: 1>, 2), (<Suit.HEARTS: 0>, 7), (<Suit.CLUBS: 2>, 3), (<Suit.CLUBS: 2>, 15)]
+Player 1 hand: [(<Suit.SPADES: 3>, 10), (<Suit.DIAMONDS: 1>, 13), (<Suit.CLUBS: 2>, 14), (<Suit.DIAMONDS: 1>, 10), (<Suit.SPADES: 3>, 6), (<Suit.CLUBS: 2>, 4), (<Suit.SPADES: 3>, 15), (<Suit.SPADES: 3>, 2), (<Suit.DIAMONDS: 1>, 6)]
+Player 2 hand: [(<Suit.HEARTS: 0>, 15), (<Suit.DIAMONDS: 1>, 5), (<Suit.HEARTS: 0>, 9), (<Suit.SPADES: 3>, 8), (<Suit.CLUBS: 2>, 5), (<Suit.DIAMONDS: 1>, 15), (<Suit.CLUBS: 2>, 10), (<Suit.SPADES: 3>, 13), (<Suit.CLUBS: 2>, 12)]
+Player 3 hand: [(<Suit.DIAMONDS: 1>, 8), (<Suit.HEARTS: 0>, 4), (<Suit.CLUBS: 2>, 13), (<Suit.SPADES: 3>, 12), (<Suit.DIAMONDS: 1>, 4), (<Suit.HEARTS: 0>, 13), (<Suit.HEARTS: 0>, 5), (<Suit.HEARTS: 0>, 12), (<Suit.DIAMONDS: 1>, 14)]
+Trump suit: 3
+Current Trick: [(None, 11, np.int64(0))]
+Current round scores: [0, 0]
+Current action mask: [0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1]
+----------------------------------------------------
+
+Next State:
+
+[ 0 15  1  5  0  9  3  8  2  5  1 15  2 10  3 13  2 12  4 11 -9 -9  0  0
+  4 11  0 10  3  1  2  3  2  0  0  0  0  0  0  0  0  0  0  0  0  0  0  0
+  0  0  0  0  0  0  0  0  1]

@@ -5,6 +5,15 @@ import torch.optim as optim
 from collections import deque
 import random
 from pitch_env import PitchEnv
+import sys 
+
+FileToInput = None
+
+if __name__ == "__main__":
+    if len(sys.argv) > 1:
+        FileToInput = sys.argv[1]
+    else:
+        print("No arguments provided (except script name).")
 
 
 
@@ -89,8 +98,16 @@ def flatten_observation(obs, debug = False):
     if (debug): print("Final flattened state size:", len(np.array(flattened)))
     return np.array(flattened)
 
-def train_agents(num_episodes=10000):
+def train_agents(FileToInput, num_episodes=10000):
     env = PitchEnv()
+    if (FileToInput is not None):
+        try:
+            with open(FileToInput, 'r', encoding='utf-8') as file:
+                env.loadStateFromJsonString(file.read())
+        except FileNotFoundError:
+            print(f"Error: The file '{FileToInput}' was not found.")
+        except Exception as e:
+            print(f"An error occurred: {e}")
     state_dim = len(flatten_observation(env.reset()[0]))
     action_dim = env.action_space.n
     print(f"Actual state dimension: {state_dim}")
@@ -128,7 +145,7 @@ def train_agents(num_episodes=10000):
     return agents
 
 # Train the agents
-trained_agents = train_agents()
+trained_agents = train_agents(FileToInput)
 
 # You can now use these trained agents to play against each other or evaluate their performance
 model_scripted = torch.jit.script(trained_agents[0]) # Export to TorchScript

@@ -15,11 +15,7 @@ if __name__ == "__main__":
     else:
         print("No arguments provided (except script name).")
 
-device = torch.device(
-    "cuda" if torch.cuda.is_available() else
-    "mps" if torch.backends.mps.is_available() else
-    "cpu"
-)
+device = torch.device("cpu")
 
 
 class DQN(nn.Module):
@@ -148,7 +144,8 @@ def train_agents(FileToInput, num_episodes=10000):
     action_dim = env.action_space.n
     agents = [Agent(state_dim, action_dim) for _ in range(4)]
 
-    target_update_freq = 500  # update target network every N steps
+    target_update_freq = 500
+    replay_freq = 4  # replay every N steps instead of every step
     global_step = 0
 
     for episode in range(num_episodes):
@@ -171,7 +168,8 @@ def train_agents(FileToInput, num_episodes=10000):
             next_obs, reward, done, _, _ = env.step(action, obs)
             next_state = flatten_observation(next_obs)
             agents[current_player].remember(state, action, reward, next_state, done)
-            agents[current_player].replay()
+            if global_step % replay_freq == 0:
+                agents[current_player].replay()
             obs = next_obs
             total_reward[current_player] += reward
             global_step += 1

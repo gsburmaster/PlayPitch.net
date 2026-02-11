@@ -362,7 +362,6 @@ class PitchEnv(gym.Env):
         self.hands = [[] for _ in range(4)]
         self.round_scores = [0,0]
         self.current_bid = 0
-        self.current_high_bidder = 0
         self.current_player = (self.dealer + 1) % 4
         self.trump_suit = None
         self.phase = Phase.BIDDING

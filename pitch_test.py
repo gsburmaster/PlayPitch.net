@@ -38,7 +38,7 @@ class TestPitchEnv(unittest.TestCase):
         self.env.phase = Phase.CHOOSESUIT
         self.env.current_high_bidder = self.env.current_player
         self.env._handle_choose_suit(19)  # Choose Hearts
-        self.assertEqual(self.env.trump_suit, 0)
+        self.assertEqual(self.env.trump_suit, Suit.HEARTS)
         self.assertEqual(self.env.phase, Phase.PLAYING)
 
     def test_handle_play(self):

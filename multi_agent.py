@@ -25,23 +25,40 @@ device = torch.device(
 class DQN(nn.Module):
     def __init__(self, input_dim, output_dim):
         super(DQN, self).__init__()
-        print(f'initial input dimention for layer 1: {input_dim}')
-        self.fc1 = nn.Linear(input_dim, 128)
-        self.fc2 = nn.Linear(128, 64)
-        self.fc3 = nn.Linear(64, output_dim)
+        # Shared feature layers: 2x expansion then compression
+        self.features = nn.Sequential(
+            nn.Linear(input_dim, 256),
+            nn.ReLU(),
+            nn.Linear(256, 128),
+            nn.ReLU(),
+        )
+        # Dueling streams: separate "how good is this state" from
+        # "how much better is each action than average"
+        self.value_stream = nn.Sequential(
+            nn.Linear(128, 64),
+            nn.ReLU(),
+            nn.Linear(64, 1),
+        )
+        self.advantage_stream = nn.Sequential(
+            nn.Linear(128, 64),
+            nn.ReLU(),
+            nn.Linear(64, output_dim),
+        )
 
     def forward(self, x):
-        x = torch.relu(self.fc1(x))
-        x = torch.relu(self.fc2(x))
-        return self.fc3(x)
+        features = self.features(x)
+        value = self.value_stream(features)
+        advantage = self.advantage_stream(features)
+        # Q = V(s) + (A(s,a) - mean(A(s,a)))
+        return value + advantage - advantage.mean(dim=-1, keepdim=True)
 
 class Agent:
     def __init__(self, state_dim, action_dim):
         self.state_dim = state_dim
-        self.q_network = DQN(state_dim, action_dim)
-        self.target_network = DQN(state_dim, action_dim)
+        self.q_network = DQN(state_dim, action_dim).to(device)
+        self.target_network = DQN(state_dim, action_dim).to(device)
         self.target_network.load_state_dict(self.q_network.state_dict())
-        self.optimizer = optim.Adam(self.q_network.parameters())
+        self.optimizer = optim.Adam(self.q_network.parameters(), lr=1e-4)
         self.memory = deque(maxlen=10000)
         self.batch_size = 64
         self.gamma = 0.99
@@ -52,40 +69,43 @@ class Agent:
     def act(self, state, action_mask):
         if np.random.rand() <= self.epsilon:
             return np.random.choice(np.where(action_mask == 1)[0])
-        state = torch.FloatTensor(state).unsqueeze(0)
-        q_values = self.q_network(state)
-        valid_q_values = q_values.squeeze() * torch.FloatTensor(action_mask)
-        return valid_q_values.argmax().item()
+        state = torch.FloatTensor(state).unsqueeze(0).to(device)
+        with torch.no_grad():
+            q_values = self.q_network(state).squeeze()
+        # -inf for invalid actions so they're never chosen, even when
+        # valid actions have negative Q-values
+        q_values[torch.FloatTensor(action_mask).to(device) == 0] = float('-inf')
+        return q_values.argmax().item()
 
     def remember(self, state, action, reward, next_state, done):
         self.memory.append((state, action, reward, next_state, done))
 
-    def print_size(self):
-        print(self.state_dim, 'self state dim')
-        return
-    def replay(self,env):
+    def replay(self):
         if len(self.memory) < self.batch_size:
             return
         minibatch = random.sample(self.memory, self.batch_size)
-        for state, action, reward, next_state, done in minibatch:
-            target = reward
-            if not done:
-                next_state = torch.FloatTensor(next_state).unsqueeze(0)
-                print(next_state.size())
-                
-                try:
-                    target = reward + self.gamma * self.target_network(next_state).max(1)[0].item()
-                except:
-                    #env.print_state()
-                    print(state)                    
-                target = reward + self.gamma * self.target_network(next_state).max(1)[0].item()
-            state = torch.FloatTensor(state).unsqueeze(0)
-            target_f = self.q_network(state)
-            target_f[0][action] = target
-            loss = nn.MSELoss()(self.q_network(state), target_f)
-            self.optimizer.zero_grad()
-            loss.backward()
-            self.optimizer.step()
+
+        # Process entire batch at once instead of one sample at a time
+        states = torch.FloatTensor(np.array([s for s, _, _, _, _ in minibatch])).to(device)
+        actions = torch.LongTensor([a for _, a, _, _, _ in minibatch]).to(device)
+        rewards = torch.FloatTensor([r for _, _, r, _, _ in minibatch]).to(device)
+        next_states = torch.FloatTensor(np.array([ns for _, _, _, ns, _ in minibatch])).to(device)
+        dones = torch.BoolTensor([d for _, _, _, _, d in minibatch]).to(device)
+
+        # Q-values for the actions we actually took
+        current_q = self.q_network(states).gather(1, actions.unsqueeze(1)).squeeze(1)
+
+        # Best Q-values for next states from target network
+        with torch.no_grad():
+            next_q = self.target_network(next_states).max(1)[0]
+            next_q[dones] = 0.0
+            target_q = rewards + self.gamma * next_q
+
+        loss = nn.MSELoss()(current_q, target_q)
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+
         if self.epsilon > self.epsilon_min:
             self.epsilon *= self.epsilon_decay
 
@@ -128,24 +148,10 @@ def train_agents(FileToInput, num_episodes=10000):
             current_player = env.current_player
             state = flatten_observation(obs)
             action = agents[current_player].act(state, obs['action_mask'])
-            next_obs, reward, done, _, _ = env.step(action,obs)
+            next_obs, reward, done, _, _ = env.step(action, obs)
             next_state = flatten_observation(next_obs)
-            if (len(next_state) != len(state)):
-                print('\ncurrent step:')
-                print(state)
-                print('\nobs:')
-                print(obs)
-                print('\n\n\n\nNext step:')
-                print(next_state)
-                print('\nnextObs')
-                print(next_obs)
-            try:
-                agents[current_player].remember(state, action, reward, next_state, done)
-                agents[current_player].replay(env)
-            except RuntimeError:
-                env.print_state()
-                env.saveStateToFileAsJson('jsonErr')
-                raise Exception
+            agents[current_player].remember(state, action, reward, next_state, done)
+            agents[current_player].replay()
             obs = next_obs
             total_reward[current_player] += reward
             

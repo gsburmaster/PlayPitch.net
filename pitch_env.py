@@ -146,6 +146,7 @@ class PitchEnv(gym.Env):
         self.player_cards_taken = [-1,-1,-1,-1]
         self.number_of_rounds_played = 0
         self.playing_iterator = 0
+        self.last_trick_points = [0, 0]
         self._deal_cards()
         observation = self._get_observation()
         info = {}
@@ -229,6 +230,10 @@ class PitchEnv(gym.Env):
             valid_actions = np.where(observation['action_mask'] == 1)[0]
             action = self.np_random.choice(valid_actions)
 
+        team = self.current_player % 2
+        scores_before = list(self.scores)
+        self.last_trick_points = [0, 0]
+
         if self.phase == Phase.BIDDING:  # Bidding phase
             self._handle_bid(action)
         elif self.phase == Phase.CHOOSESUIT:
@@ -236,10 +241,9 @@ class PitchEnv(gym.Env):
         elif self.phase == Phase.PLAYING:  # Playing phase
             self._handle_play(action)
 
-
         terminated = self._check_game_end()
         truncated = False
-        reward = self._calculate_reward()
+        reward = self._calculate_reward(team, scores_before)
         observation = self._get_observation()
         info = {}
         if (len(observation) != len(current_obs)):
@@ -273,7 +277,7 @@ class PitchEnv(gym.Env):
         if (self.current_player == self.current_high_bidder):
             if (not (19 <= action < 23)):
                 raise Exception(f"invalid bid action from winning bidder. action: {action}")
-            self.trump_suit = action-19
+            self.trump_suit = Suit(action-19)
             self.phase = Phase.PLAYING
             return
         self.current_player = (self.current_player + 1) % 4
@@ -288,7 +292,7 @@ class PitchEnv(gym.Env):
         
 
     def _handle_play(self, action):
-        if (action < 22 ):
+        if (action <= 9):
             card = self.hands[self.current_player][action]
             self.current_trick.append((card,self.current_player))
             self.hands[self.current_player].remove(card)
@@ -385,7 +389,10 @@ class PitchEnv(gym.Env):
         self.current_trick = []
         self.current_player = self.trick_winner
         trick_points = sum(self._card_points(tuple[0]) for tuple in self.tricks[-1])
-        self.round_scores[self.trick_winner % 2] += trick_points
+        winning_team = self.trick_winner % 2
+        self.round_scores[winning_team] += trick_points
+        self.last_trick_points = [0, 0]
+        self.last_trick_points[winning_team] = trick_points
 
     def _card_points(self, card):
         if card.rank in [15, 12, 10]:  # Ace, Jack, 10
@@ -406,8 +413,18 @@ class PitchEnv(gym.Env):
             return self.scores[0] - self.scores[1] > 53 or (self.scores[0] > 53 and self.current_high_bidder % 2 == 0)
         return self.scores[1] - self.scores[0] > 53 or (self.scores[1] > 53 and self.current_high_bidder % 2 == 1)
 
-    def _calculate_reward(self):
-        return (self.scores[self.current_player % 2] - self.scores[(self.current_player + 1) % 2]) - self.number_of_rounds_played*.4 + (2000 if self._check_current_player_win() else 0)  
+    def _calculate_reward(self, team, scores_before):
+        other_team = 1 - team
+        # Trick-level: points my team won minus points other team won
+        reward = self.last_trick_points[team] - self.last_trick_points[other_team]
+        # Round-end: actual score delta captures set penalties, moon bonuses, etc.
+        # e.g. bid 7 and only took 4 → scores drop by 7, reward reflects that
+        score_delta = (self.scores[team] - scores_before[team]) - (self.scores[other_team] - scores_before[other_team])
+        reward += score_delta
+        # Game-end bonus
+        if self._check_game_end():
+            reward += 100 if self._check_current_player_win() else -100
+        return reward
 
     def _get_observation(self):
         # Pad hand to fixed size (10, 2)

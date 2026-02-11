@@ -15,6 +15,11 @@ if __name__ == "__main__":
     else:
         print("No arguments provided (except script name).")
 
+device = torch.device(
+    "cuda" if torch.cuda.is_available() else
+    "mps" if torch.backends.mps.is_available() else
+    "cpu"
+)
 
 
 class DQN(nn.Module):
@@ -66,10 +71,12 @@ class Agent:
             target = reward
             if not done:
                 next_state = torch.FloatTensor(next_state).unsqueeze(0)
+                print(next_state.size())
+                
                 try:
                     target = reward + self.gamma * self.target_network(next_state).max(1)[0].item()
                 except:
-                    env.print_state()
+                    #env.print_state()
                     print(state)                    
                 target = reward + self.gamma * self.target_network(next_state).max(1)[0].item()
             state = torch.FloatTensor(state).unsqueeze(0)
@@ -110,7 +117,6 @@ def train_agents(FileToInput, num_episodes=10000):
             print(f"An error occurred: {e}")
     state_dim = len(flatten_observation(env.reset()[0]))
     action_dim = env.action_space.n
-    print(f"Actual state dimension: {state_dim}")
     agents = [Agent(state_dim, action_dim) for _ in range(4)]
 
     for episode in range(num_episodes):
@@ -124,6 +130,15 @@ def train_agents(FileToInput, num_episodes=10000):
             action = agents[current_player].act(state, obs['action_mask'])
             next_obs, reward, done, _, _ = env.step(action,obs)
             next_state = flatten_observation(next_obs)
+            if (len(next_state) != len(state)):
+                print('\ncurrent step:')
+                print(state)
+                print('\nobs:')
+                print(obs)
+                print('\n\n\n\nNext step:')
+                print(next_state)
+                print('\nnextObs')
+                print(next_obs)
             try:
                 agents[current_player].remember(state, action, reward, next_state, done)
                 agents[current_player].replay(env)

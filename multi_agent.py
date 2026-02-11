@@ -168,6 +168,16 @@ def train_agents(FileToInput, num_episodes=10000):
 # Train the agents
 trained_agents = train_agents(FileToInput)
 
-# You can now use these trained agents to play against each other or evaluate their performance
-model_scripted = torch.jit.script(trained_agents[0]) # Export to TorchScript
-model_scripted.save('model_scripted.pt') # Save
+# Export to ONNX for the Node.js server
+state_dim = len(flatten_observation(PitchEnv().reset()[0]))
+dummy_input = torch.zeros(1, state_dim, device=device)
+for i, agent in enumerate(trained_agents):
+    agent.q_network.eval()
+    torch.onnx.export(
+        agent.q_network,
+        dummy_input,
+        f"agent_{i}.onnx",
+        input_names=["state"],
+        output_names=["q_values"],
+    )
+print(f"Exported {len(trained_agents)} agents to ONNX")

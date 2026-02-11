@@ -455,7 +455,7 @@ class PitchEnv(gym.Env):
             'current_high_bidder': self.current_high_bidder,
             'dealer': self.dealer,
             'current_player': self.current_player,
-            'trump_suit': self.trump_suit if self.trump_suit is not None else 4,
+            'trump_suit': self.trump_suit.value if self.trump_suit is not None else 4,
             'phase': self.phase.value if isinstance(self.phase, Phase) else self.phase,
             'number_of_rounds_played': self.number_of_rounds_played,
             'player_cards_taken': np.array(self.player_cards_taken, dtype=np.int8),

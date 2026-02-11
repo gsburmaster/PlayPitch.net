@@ -56,8 +56,9 @@ class CardEncoder(json.JSONEncoder):
 
 
 class PitchEnv(gym.Env):
-    def __init__(self):
+    def __init__(self, win_threshold=54):
         super(PitchEnv, self).__init__()
+        self.win_threshold = win_threshold
         self.played_cards = []
         self.num_actions = 24  # 10 for cards in hand, 9 for possible bids (pass, 5-10, shoot the moon, double shoot the moon), 4 for choosing suit, one for no valid play
         self.action_space = gym.spaces.Discrete(self.num_actions)
@@ -400,12 +401,16 @@ class PitchEnv(gym.Env):
         return 0
 
     def _check_game_end(self):
-        return abs(self.scores[0] - self.scores[1]) > 53 or (self.scores[0] > 53 and self.current_high_bidder % 2 == 0 ) or (self.scores[1] > 53 and self.current_high_bidder % 2 == 1 )
+        t = self.win_threshold
+        if self.number_of_rounds_played >= 50:
+            return True
+        return abs(self.scores[0] - self.scores[1]) > t or (self.scores[0] > t and self.current_high_bidder % 2 == 0 ) or (self.scores[1] > t and self.current_high_bidder % 2 == 1 )
 
     def _check_current_player_win(self):
+        t = self.win_threshold
         if (self.current_player % 2 == 0):
-            return self.scores[0] - self.scores[1] > 53 or (self.scores[0] > 53 and self.current_high_bidder % 2 == 0)
-        return self.scores[1] - self.scores[0] > 53 or (self.scores[1] > 53 and self.current_high_bidder % 2 == 1)
+            return self.scores[0] - self.scores[1] > t or (self.scores[0] > t and self.current_high_bidder % 2 == 0)
+        return self.scores[1] - self.scores[0] > t or (self.scores[1] > t and self.current_high_bidder % 2 == 1)
 
     def _calculate_reward(self, team, scores_before):
         other_team = 1 - team

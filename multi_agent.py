@@ -126,6 +126,15 @@ def flatten_observation(obs, debug = False):
     return np.array(flattened)
 
 def train_agents(FileToInput, num_episodes=10000):
+    # Curriculum: start with short games, ramp to full 54-point games
+    curriculum = [
+        (0.00, 5),    # episodes 0-9%: first to 5
+        (0.10, 10),   # episodes 10-29%: first to 10
+        (0.30, 20),   # episodes 30-59%: first to 20
+        (0.60, 35),   # episodes 60-79%: first to 35
+        (0.80, 54),   # episodes 80-100%: full game
+    ]
+
     env = PitchEnv()
     if (FileToInput is not None):
         try:
@@ -139,7 +148,18 @@ def train_agents(FileToInput, num_episodes=10000):
     action_dim = env.action_space.n
     agents = [Agent(state_dim, action_dim) for _ in range(4)]
 
+    target_update_freq = 500  # update target network every N steps
+    global_step = 0
+
     for episode in range(num_episodes):
+        # Set win threshold based on curriculum
+        progress = episode / num_episodes
+        threshold = curriculum[-1][1]
+        for start_frac, thresh in curriculum:
+            if progress >= start_frac:
+                threshold = thresh
+        env.win_threshold = threshold
+
         obs, _ = env.reset()
         done = False
         total_reward = [0, 0, 0, 0]
@@ -154,14 +174,15 @@ def train_agents(FileToInput, num_episodes=10000):
             agents[current_player].replay()
             obs = next_obs
             total_reward[current_player] += reward
-            
+            global_step += 1
 
-        # Update target networks
-        for agent in agents:
-            agent.update_target_network()
+            # Step-based target updates so learning stays stable during long games
+            if global_step % target_update_freq == 0:
+                for agent in agents:
+                    agent.update_target_network()
 
         if episode % 100 == 0:
-            print(f"Episode: {episode}, Rewards: {total_reward}")
+            print(f"Episode: {episode}, Threshold: {threshold}, Rewards: {total_reward}")
 
     return agents
 

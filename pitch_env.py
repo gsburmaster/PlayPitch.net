@@ -404,13 +404,13 @@ class PitchEnv(gym.Env):
         t = self.win_threshold
         if self.number_of_rounds_played >= 50:
             return True
-        return abs(self.scores[0] - self.scores[1]) > t or (self.scores[0] > t and self.current_high_bidder % 2 == 0 ) or (self.scores[1] > t and self.current_high_bidder % 2 == 1 )
+        return abs(self.scores[0] - self.scores[1]) >= t or (self.scores[0] >= t and self.current_high_bidder % 2 == 0 ) or (self.scores[1] >= t and self.current_high_bidder % 2 == 1 )
 
     def _check_current_player_win(self):
         t = self.win_threshold
         if (self.current_player % 2 == 0):
-            return self.scores[0] - self.scores[1] > t or (self.scores[0] > t and self.current_high_bidder % 2 == 0)
-        return self.scores[1] - self.scores[0] > t or (self.scores[1] > t and self.current_high_bidder % 2 == 1)
+            return self.scores[0] - self.scores[1] >= t or (self.scores[0] >= t and self.current_high_bidder % 2 == 0)
+        return self.scores[1] - self.scores[0] >= t or (self.scores[1] >= t and self.current_high_bidder % 2 == 1)
 
     def _calculate_reward(self, team, scores_before):
         other_team = 1 - team

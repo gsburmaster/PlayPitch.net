@@ -426,54 +426,54 @@ class TestPitchEnv(unittest.TestCase):
 
     def test_reward_game_end_bonus(self):
         self.env.reset()
-        self.env.scores = [55, 0]
+        self.env.scores = [54, 0]
         self.env.current_high_bidder = 0
         self.env.current_player = 0
         self.env.last_trick_points = [0, 0]
-        reward = self.env._calculate_reward(team=0, scores_before=[55, 0])
+        reward = self.env._calculate_reward(team=0, scores_before=[54, 0])
         self.assertEqual(reward, 100)
 
     def test_reward_game_end_loss(self):
         self.env.reset()
-        self.env.scores = [55, 0]
+        self.env.scores = [54, 0]
         self.env.current_high_bidder = 0
         self.env.current_player = 1
         self.env.last_trick_points = [0, 0]
-        reward = self.env._calculate_reward(team=1, scores_before=[55, 0])
+        reward = self.env._calculate_reward(team=1, scores_before=[54, 0])
         self.assertEqual(reward, -100)
 
     # --- Game end ---
 
     def test_game_not_over(self):
         self.env.reset()
-        self.env.scores = [54, 0]
+        self.env.scores = [53, 0]
         self.env.current_high_bidder = 0
         self.assertFalse(self.env._check_game_end())
 
     def test_game_over_bidder_wins(self):
         self.env.reset()
-        self.env.scores = [55, 0]
+        self.env.scores = [54, 0]
         self.env.current_high_bidder = 0
         self.assertTrue(self.env._check_game_end())
 
     def test_game_not_over_non_bidder_above_threshold(self):
         self.env.reset()
-        self.env.scores = [55, 10]
+        self.env.scores = [54, 10]
         self.env.current_high_bidder = 1  # team 1 is bidder, team 0 just has points
-        # team 0 has 55 but they're not the bidder, and difference is only 45
+        # team 0 has 54 but they're not the bidder, and difference is only 44
         self.assertFalse(self.env._check_game_end())
 
     def test_game_over_blowout(self):
         self.env.reset()
-        self.env.scores = [55, 0]
+        self.env.scores = [54, 0]
         self.env.current_high_bidder = 1
-        # abs(55-0) > 54, so game ends regardless of bidder
+        # abs(54-0) >= 54, so game ends regardless of bidder
         self.assertTrue(self.env._check_game_end())
 
     def test_game_over_custom_threshold(self):
         self.env.reset()
         self.env.win_threshold = 10
-        self.env.scores = [11, 0]
+        self.env.scores = [10, 0]
         self.env.current_high_bidder = 0
         self.assertTrue(self.env._check_game_end())
 

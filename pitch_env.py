@@ -66,7 +66,7 @@ class PitchEnv(gym.Env):
             'tricks': gym.spaces.Box(low=0, high=15, shape=(4, 2), dtype=np.int8), 
             'round_scores': gym.spaces.Box(low=0,high=10,shape=(2,), dtype=np.int8), # temporary score used to evaluate if you made your bid or not
             'played_cards': gym.spaces.Box(low=0, high=15, shape=(16, 2), dtype=np.int8),
-            'scores': gym.spaces.Box(low=0, high=54, shape=(2,), dtype=np.int8),
+            'scores': gym.spaces.Box(low=-32768, high=32767, shape=(2,), dtype=np.int16),
             'current_bid': gym.spaces.Discrete(9),  # 0,5-10,moon,double moon where 0 means no bid yet
             'current_high_bidder': gym.spaces.Discrete(5), #no bid or 1-4
             'dealer': gym.spaces.Discrete(4),
@@ -92,7 +92,7 @@ class PitchEnv(gym.Env):
             'tricks': gym.spaces.Box(low=0, high=15, shape=(4, 2), dtype=np.int8), 
             'round_scores': gym.spaces.Box(low=0,high=10,shape=(2,), dtype=np.int8), # temporary score used to evaluate if you made your bid or not
             'played_cards': gym.spaces.Box(low=0, high=15, shape=(16, 2), dtype=np.int8),
-            'scores': gym.spaces.Box(low=0, high=54, shape=(2,), dtype=np.int8),
+            'scores': gym.spaces.Box(low=-32768, high=32767, shape=(2,), dtype=np.int16),
             'current_bid': gym.spaces.Discrete(9),  # 0,5-10,moon,double moon where 0 means no bid yet
             'current_high_bidder': gym.spaces.Discrete(5), #no bid or 1-4
             'dealer': gym.spaces.Discrete(4),
@@ -278,6 +278,7 @@ class PitchEnv(gym.Env):
             if (not (19 <= action < 23)):
                 raise Exception(f"invalid bid action from winning bidder. action: {action}")
             self.trump_suit = Suit(action-19)
+            self._discard_and_fill()
             self.phase = Phase.PLAYING
             return
         self.current_player = (self.current_player + 1) % 4
@@ -311,42 +312,35 @@ class PitchEnv(gym.Env):
 
 
     def _discard_and_fill(self):
-        dealerOffset = self.dealer
+        bidder = self.current_high_bidder
+        partner = (bidder + 2) % 4
+
+        # Phase 1: All players discard non-playable cards (keep trump, jokers, off-jack)
         for player in range(4):
-            self.hands[(player + dealerOffset) % 4] = [card for card in self.hands[(player + dealerOffset) % 4]
-                                  if card.suit == self.trump_suit or card.rank == 11]
-            while len(self.hands[(player + dealerOffset) % 4]) < 6 and len(self.deck) > 0:
-                self.hands[(player + dealerOffset) % 4].append(self.deck.pop())
-                self.player_cards_taken[(player + dealerOffset) % 4] += 1
-            #bidder team fill phase
-            sortLambda = lambda x: 0 if self._is_valid_play(x) else 1 # put the invalid cards at the back of the hand
-            bidderInvalidCount = len(filter(lambda card: not self._is_valid_play(card),self.hands[self.current_high_bidder]))
-            bidderPartnerInvalidCount = len(filter(lambda card: not self._is_valid_play(card),self.hands[(self.current_high_bidder + 2) % 4]))
-            self.hands[self.current_high_bidder].sort(key=sortLambda)
-            self.hands[(self.current_high_bidder + 2) % 4].sort(key=sortLambda)
-            while (bidderInvalidCount > 0 and self.deck.count() > 0):
-                if (bidderInvalidCount == self.deck.count()):
-                    for x in range(0,bidderInvalidCount):
-                        self.hands[self.current_high_bidder].insert(0,self.deck.pop())
-                else:
-                    possibleCard = self.deck.pop()
-                    if (self._is_valid_play(possibleCard)):
-                        self.hands[self.current_high_bidder].pop()
-                        self.hands[self.current_high_bidder].insert(0,possibleCard)
-                        bidderInvalidCount = bidderInvalidCount - 1
-            if (self.deck.count() == 0):
-                return
-            else:
-                cardsToAddToPartner = filter(lambda card: self._is_valid_play(card),self.deck)
-                if (len(cardsToAddToPartner) > bidderPartnerInvalidCount):
-                    self.hands[(self.current_high_bidder + 2) % 4] = filter(lambda card: self.hands[(self.current_high_bidder + 2) % 4])
-                    self.hands[(self.current_high_bidder + 2) % 4] = self.hands[(self.current_high_bidder + 2) % 4] + cardsToAddToPartner
-                    self.player_cards_taken[(self.current_high_bidder + 2) % 4] = len(cardsToAddToPartner)
-                else:
-                    for x in range(len(cardsToAddToPartner)):
-                        self.hands[(self.current_high_bidder + 2) % 4].pop()
-                        self.hands[(self.current_high_bidder + 2) % 4].insert(0,cardsToAddToPartner.pop())
-                    self.player_cards_taken[(self.current_high_bidder + 2) % 4] = len(cardsToAddToPartner + 1) #TODO check on this
+            p = (player + self.dealer) % 4
+            self.hands[p] = [card for card in self.hands[p] if self._is_valid_play(card)]
+
+        # Phase 2: All players fill to 6 from deck in dealer order
+        for player in range(4):
+            p = (player + self.dealer) % 4
+            while len(self.hands[p]) < 6 and len(self.deck) > 0:
+                self.hands[p].append(self.deck.pop())
+                self.player_cards_taken[p] += 1
+
+        # Phase 3: Bidder swaps invalid drawn cards for playable ones from deck,
+        # then partner gets the same treatment with whatever is left
+        for p in [bidder, partner]:
+            invalid_cards = [c for c in self.hands[p] if not self._is_valid_play(c)]
+            for bad_card in invalid_cards:
+                replacement = None
+                for card in self.deck:
+                    if self._is_valid_play(card):
+                        replacement = card
+                        break
+                if replacement is not None:
+                    self.hands[p].remove(bad_card)
+                    self.hands[p].append(replacement)
+                    self.deck.remove(replacement)
 
     def _end_round(self):
         #add the scores up
@@ -448,8 +442,8 @@ class PitchEnv(gym.Env):
         return {
             'hand': hand_padded,
             'played_cards': played_padded,
-            'scores': np.array(self.scores, dtype=np.int8),
-            'round_scores': np.array(self.round_scores, dtype=np.int8),
+            'scores': np.array(self.scores, dtype=np.int16),
+            'round_scores': np.array(self.round_scores, dtype=np.int16),
             'current_trick': trick_padded,
             'current_bid': self.current_bid,
             'current_high_bidder': self.current_high_bidder,

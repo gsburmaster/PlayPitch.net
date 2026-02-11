@@ -239,6 +239,115 @@ class TestPitchEnv(unittest.TestCase):
         self.assertEqual(self.env.dealer,1)
 
 
+    # --- Discard and fill ---
+
+    def test_discard_removes_non_playable(self):
+        self.env.reset()
+        self.env.trump_suit = Suit.HEARTS
+        self.env.current_high_bidder = 0
+        self.env.dealer = 0
+        self.env.hands[0] = [
+            Card(Suit.HEARTS, 7),   # trump — keep
+            Card(Suit.CLUBS, 5),    # non-trump — discard
+            Card(None, 11),         # joker — keep
+            Card(Suit.DIAMONDS, 12),# off-jack — keep
+            Card(Suit.SPADES, 9),   # non-trump — discard
+        ]
+        # Other players already full of valid cards so they don't draw
+        for p in [1, 2, 3]:
+            self.env.hands[p] = [Card(Suit.HEARTS, i) for i in range(2, 8)]
+        self.env.deck = [Card(Suit.HEARTS, i) for i in range(2, 10)]
+        self.env._discard_and_fill()
+        # Should have kept 3 valid cards + filled to 6
+        self.assertEqual(len(self.env.hands[0]), 6)
+        for card in self.env.hands[0]:
+            self.assertTrue(self.env._is_valid_play(card))
+
+    def test_fill_to_six_in_dealer_order(self):
+        self.env.reset()
+        self.env.trump_suit = Suit.CLUBS
+        self.env.current_high_bidder = 0
+        self.env.dealer = 0
+        # Give everyone 0 valid cards so they all need 6
+        for p in range(4):
+            self.env.hands[p] = []
+        # Only 15 cards in deck — player order is 0,1,2,3.
+        # First 3 players get 6, last player gets 0 (only 18 needed but 15 available → 4th gets 3)
+        self.env.deck = [Card(Suit.CLUBS, 2)] * 15
+        self.env._discard_and_fill()
+        # Dealer order: 0 gets 6, 1 gets 6, 2 gets 3, 3 gets 0
+        self.assertEqual(len(self.env.hands[0]), 6)
+        self.assertEqual(len(self.env.hands[1]), 6)
+        self.assertEqual(len(self.env.hands[2]), 3)
+        self.assertEqual(len(self.env.hands[3]), 0)
+
+    def test_bidder_fills_before_partner(self):
+        self.env.reset()
+        self.env.trump_suit = Suit.DIAMONDS
+        self.env.dealer = 0
+        self.env.current_high_bidder = 1  # partner is player 3
+        # All 4 players start with 1 valid card
+        for p in range(4):
+            self.env.hands[p] = [Card(Suit.DIAMONDS, 7)]
+        # Deck: 10 non-diamond then 5 diamonds at the bottom
+        # Phase 2 fills everyone to 6 from deck. Deck has 15 cards, need 20 (5 each).
+        # Player 0 gets 5, player 1 gets 5, player 2 gets 5, player 3 gets 0 (deck empty)
+        # Actually let's be more targeted:
+        # Enough cards for everyone to fill to 6, but only some are playable
+        self.env.deck = [Card(Suit.SPADES, i) for i in range(2, 7)] * 4  # 20 non-diamond
+        # Add 3 diamonds at the end (will be drawn last / remain in deck for phase 3)
+        self.env.deck = [Card(Suit.DIAMONDS, 10), Card(Suit.DIAMONDS, 15), Card(Suit.DIAMONDS, 3)] + self.env.deck
+        self.env._discard_and_fill()
+        # After phase 2: everyone has 6 cards (1 diamond + 5 spades each)
+        # Phase 3: bidder (1) has 5 invalid spades, 3 diamonds available → swaps 3
+        bidder_valid = [c for c in self.env.hands[1] if self.env._is_valid_play(c)]
+        partner_valid = [c for c in self.env.hands[3] if self.env._is_valid_play(c)]
+        # Bidder should have gotten all 3 available diamonds (1 original + 3 swapped = 4)
+        self.assertEqual(len(bidder_valid), 4)
+        # Partner gets none — the 3 diamonds all went to bidder
+        self.assertEqual(len(partner_valid), 1)  # only their original
+
+    def test_player_cards_taken_updated(self):
+        self.env.reset()
+        self.env.trump_suit = Suit.HEARTS
+        self.env.current_high_bidder = 0
+        self.env.dealer = 0
+        self.env.player_cards_taken = [0, 0, 0, 0]
+        self.env.hands[0] = [Card(Suit.HEARTS, 15)]  # 1 card, needs 5 more
+        self.env.hands[1] = [Card(Suit.HEARTS, 7)] * 6  # already at 6
+        self.env.hands[2] = [Card(Suit.HEARTS, 7)] * 6
+        self.env.hands[3] = [Card(Suit.HEARTS, 7)] * 6
+        self.env.deck = [Card(Suit.HEARTS, i) for i in range(2, 7)]  # 5 cards
+        self.env._discard_and_fill()
+        self.assertEqual(self.env.player_cards_taken[0], 5)
+        self.assertEqual(self.env.player_cards_taken[1], 0)
+
+    def test_discard_keeps_off_jack(self):
+        self.env.reset()
+        self.env.trump_suit = Suit.SPADES
+        self.env.current_high_bidder = 0
+        self.env.hands[0] = [Card(Suit.CLUBS, 12), Card(Suit.HEARTS, 12)]  # clubs jack is off-jack, hearts is not
+        self.env.deck = [Card(Suit.SPADES, i) for i in range(2, 12)] * 4
+        self.env._discard_and_fill()
+        # Off-jack (clubs jack) should be kept, hearts jack discarded
+        has_clubs_jack = any(c.suit == Suit.CLUBS and c.rank == 12 for c in self.env.hands[0])
+        has_hearts_jack = any(c.suit == Suit.HEARTS and c.rank == 12 for c in self.env.hands[0])
+        self.assertTrue(has_clubs_jack)
+        self.assertFalse(has_hearts_jack)
+
+    def test_discard_fill_deck_runs_out(self):
+        self.env.reset()
+        self.env.trump_suit = Suit.HEARTS
+        self.env.current_high_bidder = 0
+        self.env.dealer = 0
+        for p in range(4):
+            self.env.hands[p] = []  # everyone empty
+        self.env.deck = [Card(Suit.HEARTS, 7), Card(Suit.HEARTS, 8)]  # only 2 cards
+        self.env._discard_and_fill()
+        # Player 0 (dealer) gets both cards, everyone else gets nothing
+        self.assertEqual(len(self.env.hands[0]), 2)
+        self.assertEqual(len(self.env.hands[1]), 0)
+
     # --- Moon scoring ---
 
     def test_end_round_shoot_moon_made(self):

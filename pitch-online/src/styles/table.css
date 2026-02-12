@@ -1,0 +1,168 @@
+.table-bg {
+  background: radial-gradient(ellipse at center, #1a5c2a 0%, #0d3318 70%, #071a0d 100%);
+  min-height: 100vh;
+}
+
+/* Game table layout */
+.game-table {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.game-topbar {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  right: 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  z-index: 10;
+}
+
+.game-position-top {
+  position: absolute;
+  top: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  text-align: center;
+}
+
+.game-position-left {
+  position: absolute;
+  left: 20px;
+  top: 50%;
+  transform: translateY(-50%);
+  text-align: center;
+}
+
+.game-position-right {
+  position: absolute;
+  right: 20px;
+  top: 50%;
+  transform: translateY(-50%);
+  text-align: center;
+}
+
+.game-position-bottom {
+  position: absolute;
+  bottom: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  text-align: center;
+  z-index: 5;
+}
+
+.game-center {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 2;
+}
+
+/* Overlays */
+.game-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.overlay-content {
+  background: rgba(0, 50, 0, 0.95);
+  color: white;
+  padding: 2rem 3rem;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  max-width: 500px;
+}
+
+/* Hand display */
+.hand-display.face-down {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Player area */
+.player-area {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Action panel */
+.action-panel {
+  margin-top: 8px;
+}
+
+/* Trick area */
+.trick-area {
+  position: relative;
+}
+
+/* Scoreboard */
+.scoreboard {
+  line-height: 1.4;
+}
+
+/* Animations */
+@keyframes popIn {
+  0% {
+    transform: scale(0);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* Responsive */
+@media (max-width: 767px) {
+  .game-position-left,
+  .game-position-right {
+    position: static;
+    transform: none;
+  }
+
+  .game-position-top {
+    position: static;
+    transform: none;
+  }
+
+  .game-table {
+    display: flex;
+    flex-direction: column;
+    height: auto;
+    min-height: 100vh;
+    padding: 10px;
+  }
+
+  .game-topbar {
+    position: static;
+    margin-bottom: 10px;
+  }
+
+  .game-center {
+    position: static;
+    transform: none;
+    margin: 10px auto;
+  }
+
+  .game-position-bottom {
+    position: static;
+    transform: none;
+    margin-top: auto;
+  }
+}

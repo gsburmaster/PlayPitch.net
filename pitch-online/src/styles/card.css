@@ -1,0 +1,126 @@
+:root {
+  --card-width: 80px;
+  --card-height: 112px;
+}
+
+@media (max-width: 767px) {
+  :root {
+    --card-width: 56px;
+    --card-height: 78px;
+  }
+}
+
+.pitch-card {
+  width: var(--card-width);
+  height: var(--card-height);
+  border-radius: 6px;
+  background: white;
+  border: 1px solid #ccc;
+  position: relative;
+  flex-shrink: 0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  transition: transform 150ms ease, box-shadow 150ms ease;
+  user-select: none;
+}
+
+/* Colors */
+.pitch-card.red {
+  color: #dc3545;
+}
+
+.pitch-card.black {
+  color: #222;
+}
+
+.pitch-card.joker {
+  color: #7b2d8b;
+}
+
+/* Corners */
+.pitch-card .corner {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1;
+}
+
+.pitch-card .corner.top-left {
+  top: 3px;
+  left: 4px;
+}
+
+.pitch-card .corner.bottom-right {
+  bottom: 3px;
+  right: 4px;
+}
+
+.pitch-card .corner.rotated {
+  transform: rotate(180deg);
+}
+
+.pitch-card .rank {
+  font-size: calc(var(--card-width) * 0.18);
+  font-weight: bold;
+}
+
+.pitch-card .suit-symbol {
+  font-size: calc(var(--card-width) * 0.15);
+}
+
+/* Center suit */
+.pitch-card .center {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.pitch-card .suit-large {
+  font-size: calc(var(--card-width) * 0.4);
+}
+
+/* Card back */
+.pitch-card.card-back {
+  background: #2a5298;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  overflow: hidden;
+}
+
+.card-back-pattern {
+  width: 100%;
+  height: 100%;
+  background: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 5px,
+    rgba(255, 255, 255, 0.08) 5px,
+    rgba(255, 255, 255, 0.08) 10px
+  );
+  border: 3px solid rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  box-sizing: border-box;
+}
+
+/* Interaction states */
+.pitch-card.playable {
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .pitch-card.playable:hover {
+    transform: translateY(-12px);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+    z-index: 100;
+  }
+}
+
+.pitch-card.dimmed {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.pitch-card.highlighted {
+  border: 2px solid gold;
+  box-shadow: 0 0 12px rgba(255, 215, 0, 0.6);
+}

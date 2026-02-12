@@ -310,7 +310,10 @@ export class PitchEngine {
       const trickResult = this.resolveTrick();
       events.push({ type: "trickResult", data: trickResult as unknown as Record<string, unknown> });
       this.playingIterator = 0;
-      this.currentPlayer = (this.currentPlayer + 1) % 4;
+      // Trick winner leads next; if they have no valid plays, advance clockwise
+      if (!this.playerHasValidPlay(this.currentPlayer)) {
+        this.currentPlayer = (this.currentPlayer + 1) % 4;
+      }
       return events;
     }
 
@@ -361,11 +364,13 @@ export class PitchEngine {
     }
   }
 
+  private playerHasValidPlay(seat: number): boolean {
+    return this.hands[seat].some((card) => this.isValidPlay(card));
+  }
+
   private noMoreValidPlaysAnyHand(): boolean {
     for (let i = 0; i < 4; i++) {
-      for (const card of this.hands[i]) {
-        if (this.isValidPlay(card)) return false;
-      }
+      if (this.playerHasValidPlay(i)) return false;
     }
     return true;
   }

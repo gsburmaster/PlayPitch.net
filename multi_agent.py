@@ -121,7 +121,7 @@ def flatten_observation(obs, debug = False):
     if (debug): print("Final flattened state size:", len(np.array(flattened)))
     return np.array(flattened)
 
-def train_agents(FileToInput, num_episodes=10000):
+def train_agents(FileToInput, num_episodes=1000000):
     # Curriculum: start with short games, ramp to full 54-point games
     curriculum = [
         (0.00, 5),    # episodes 0-9%: first to 5
@@ -195,7 +195,7 @@ for i, agent in enumerate(trained_agents):
     torch.onnx.export(
         agent.q_network,
         dummy_input,
-        f"agent_{i}.onnx",
+        f"agent_{i}_longtraining.onnx",
         input_names=["state"],
         output_names=["q_values"],
     )

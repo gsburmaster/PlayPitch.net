@@ -69,11 +69,10 @@ export class Room {
     return seat;
   }
 
-  addAIPlayers(count: number): void {
+  addAIPlayersAtSeats(seats: SeatIndex[]): void {
     const aiNames = ["AI Alpha", "AI Beta", "AI Gamma"];
-    // Fill from seat 3 backward
-    for (let i = 0; i < count; i++) {
-      const seatIdx = (3 - i) as SeatIndex;
+    for (let i = 0; i < seats.length; i++) {
+      const seatIdx = seats[i];
       this.players.push({
         ws: null,
         playerId: `ai-${this.code}-${seatIdx}`,

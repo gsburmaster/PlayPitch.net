@@ -17,13 +17,13 @@ export default function SplashScreen() {
   const [loading, setLoading] = useState(false);
   const [joinError, setJoinError] = useState("");
 
-  const handleCreateGame = async (aiCount: number) => {
+  const handleCreateGame = async (aiSeats: number[]) => {
     setLoading(true);
     try {
       const res = await fetch(`${API_BASE}/api/rooms`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ displayName, aiPlayerCount: aiCount }),
+        body: JSON.stringify({ displayName, aiSeats }),
       });
       if (!res.ok) throw new Error("Failed to create room");
       const data = await res.json();

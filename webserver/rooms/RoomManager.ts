@@ -22,7 +22,7 @@ export class RoomManager {
 
   createRoom(
     displayName: string,
-    aiPlayerCount: number
+    aiSeats: SeatIndex[]
   ): { room: Room; playerId: string; seatIndex: SeatIndex } {
     let code = generateCode();
     while (this.rooms.has(code)) {
@@ -37,9 +37,8 @@ export class RoomManager {
     room.addPlayer(playerId, displayName, false);
     room.creatorSeat = 0;
 
-    // Add AI players from seat 3 backward
-    if (aiPlayerCount > 0) {
-      room.addAIPlayers(aiPlayerCount);
+    if (aiSeats.length > 0) {
+      room.addAIPlayersAtSeats(aiSeats);
     }
 
     this.rooms.set(code, room);

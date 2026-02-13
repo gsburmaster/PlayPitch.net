@@ -288,9 +288,8 @@ class PitchEnv(gym.Env):
         for i in range(0,4):
             for j in range(0,len(self.hands[i])):
                 if (self._is_valid_play(self.hands[i][j])):
-                    print('Thought that there were no more valid plays anywhere!')
                     return False
-        return True        
+        return True
         
 
     def _handle_play(self, action):
@@ -373,7 +372,6 @@ class PitchEnv(gym.Env):
         self.number_of_rounds_played += 1
         self.playing_iterator = 0
         self._deal_cards()
-        print('\nscores: Team 1: ' + str(self.scores[0]) + ' Team 2: ' + str(self.scores[1]))
         
 
     def _resolve_trick(self):

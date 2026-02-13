@@ -22,6 +22,8 @@ export class Room {
   playAgainVotes: Set<string> = new Set();
   playAgainTimer: ReturnType<typeof setTimeout> | null = null;
   expirationTimer: ReturnType<typeof setTimeout> | null = null;
+  private _aiTurnPending = false;
+  private _aiTimeout: ReturnType<typeof setTimeout> | null = null;
   onDestroy: () => void;
 
   constructor(code: string, onDestroy: () => void) {
@@ -371,14 +373,18 @@ export class Room {
 
   processAITurns(): void {
     if (this.state !== "playing" || this.engine.gameOver) return;
+    if (this._aiTurnPending) return;
 
     const currentSeat = this.engine.currentPlayer;
     const currentPlayer = this.getPlayerBySeat(currentSeat);
     if (!currentPlayer?.isAI) return;
 
+    this._aiTurnPending = true;
     // Random delay 800-2000ms
     const delay = 800 + Math.floor(Math.random() * 1200);
-    setTimeout(async () => {
+    this._aiTimeout = setTimeout(async () => {
+      this._aiTurnPending = false;
+      this._aiTimeout = null;
       if (this.state !== "playing" || this.engine.gameOver) return;
       if (this.engine.currentPlayer !== currentSeat) return;
 
@@ -500,6 +506,11 @@ export class Room {
     this.state = "closed";
     if (this.expirationTimer) clearTimeout(this.expirationTimer);
     if (this.playAgainTimer) clearTimeout(this.playAgainTimer);
+    if (this._aiTimeout) {
+      clearTimeout(this._aiTimeout);
+      this._aiTimeout = null;
+      this._aiTurnPending = false;
+    }
     for (const p of this.players) {
       if (p.disconnectTimer) clearTimeout(p.disconnectTimer);
       if (p.ws) p.ws.close();

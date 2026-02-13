@@ -54,7 +54,6 @@ export class PitchEngine {
     }
     /** Start a new round (preserves scores, increments dealer) */
     newRound() {
-        const scoresBefore = [...this.scores];
         this.dealer = (this.dealer + 1) % 4;
         this.deck = this.createDeck();
         this.hands = [[], [], [], []];
@@ -91,14 +90,16 @@ export class PitchEngine {
             }
             if (this.currentPlayer === this.dealer) {
                 if (currentBidAsMask === 14) {
-                    // current bid is moon (8+6=14), dealer can double
+                    // current bid is 8 (8+6=14), dealer can double
                     mask[18] = 1;
                 }
             }
         }
         else if (this.phase === Phase.CHOOSESUIT) {
-            for (let i = 19; i < 23; i++) {
-                mask[i] = 1;
+            if (this.currentPlayer === this.currentHighBidder) {
+                for (let i = 19; i < 23; i++) {
+                    mask[i] = 1;
+                }
             }
         }
         else if (this.phase === Phase.PLAYING) {
@@ -251,7 +252,10 @@ export class PitchEngine {
             const trickResult = this.resolveTrick();
             events.push({ type: "trickResult", data: trickResult });
             this.playingIterator = 0;
-            this.currentPlayer = (this.currentPlayer + 1) % 4;
+            // Trick winner leads next; if they have no valid plays, advance clockwise
+            if (!this.playerHasValidPlay(this.currentPlayer)) {
+                this.currentPlayer = (this.currentPlayer + 1) % 4;
+            }
             return events;
         }
         this.currentPlayer = (this.currentPlayer + 1) % 4;
@@ -295,12 +299,13 @@ export class PitchEngine {
             }
         }
     }
+    playerHasValidPlay(seat) {
+        return this.hands[seat].some((card) => this.isValidPlay(card));
+    }
     noMoreValidPlaysAnyHand() {
         for (let i = 0; i < 4; i++) {
-            for (const card of this.hands[i]) {
-                if (this.isValidPlay(card))
-                    return false;
-            }
+            if (this.playerHasValidPlay(i))
+                return false;
         }
         return true;
     }

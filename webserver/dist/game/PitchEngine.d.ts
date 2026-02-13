@@ -59,6 +59,7 @@ export declare class PitchEngine {
     private handleChooseSuit;
     private handlePlay;
     private discardAndFill;
+    private playerHasValidPlay;
     private noMoreValidPlaysAnyHand;
     private endRound;
     private resolveTrick;

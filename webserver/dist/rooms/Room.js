@@ -10,6 +10,8 @@ export class Room {
     playAgainVotes = new Set();
     playAgainTimer = null;
     expirationTimer = null;
+    _aiTurnPending = false;
+    _aiTimeout = null;
     onDestroy;
     constructor(code, onDestroy) {
         this.code = code;
@@ -51,11 +53,10 @@ export class Room {
         });
         return seat;
     }
-    addAIPlayers(count) {
+    addAIPlayersAtSeats(seats) {
         const aiNames = ["AI Alpha", "AI Beta", "AI Gamma"];
-        // Fill from seat 3 backward
-        for (let i = 0; i < count; i++) {
-            const seatIdx = (3 - i);
+        for (let i = 0; i < seats.length; i++) {
+            const seatIdx = seats[i];
             this.players.push({
                 ws: null,
                 playerId: `ai-${this.code}-${seatIdx}`,
@@ -333,13 +334,18 @@ export class Room {
     processAITurns() {
         if (this.state !== "playing" || this.engine.gameOver)
             return;
+        if (this._aiTurnPending)
+            return;
         const currentSeat = this.engine.currentPlayer;
         const currentPlayer = this.getPlayerBySeat(currentSeat);
         if (!currentPlayer?.isAI)
             return;
+        this._aiTurnPending = true;
         // Random delay 800-2000ms
         const delay = 800 + Math.floor(Math.random() * 1200);
-        setTimeout(async () => {
+        this._aiTimeout = setTimeout(async () => {
+            this._aiTurnPending = false;
+            this._aiTimeout = null;
             if (this.state !== "playing" || this.engine.gameOver)
                 return;
             if (this.engine.currentPlayer !== currentSeat)
@@ -453,6 +459,11 @@ export class Room {
             clearTimeout(this.expirationTimer);
         if (this.playAgainTimer)
             clearTimeout(this.playAgainTimer);
+        if (this._aiTimeout) {
+            clearTimeout(this._aiTimeout);
+            this._aiTimeout = null;
+            this._aiTurnPending = false;
+        }
         for (const p of this.players) {
             if (p.disconnectTimer)
                 clearTimeout(p.disconnectTimer);

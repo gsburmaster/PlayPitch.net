@@ -94,7 +94,6 @@ export class PitchEngine {
 
   /** Start a new round (preserves scores, increments dealer) */
   newRound(): void {
-    const scoresBefore: [number, number] = [...this.scores];
     this.dealer = (this.dealer + 1) % 4;
     this.deck = this.createDeck();
     this.hands = [[], [], [], []];
@@ -132,13 +131,15 @@ export class PitchEngine {
       }
       if (this.currentPlayer === this.dealer) {
         if (currentBidAsMask === 14) {
-          // current bid is moon (8+6=14), dealer can double
+          // current bid is 8 (8+6=14), dealer can double
           mask[18] = 1;
         }
       }
     } else if (this.phase === Phase.CHOOSESUIT) {
-      for (let i = 19; i < 23; i++) {
-        mask[i] = 1;
+      if (this.currentPlayer === this.currentHighBidder) {
+        for (let i = 19; i < 23; i++) {
+          mask[i] = 1;
+        }
       }
     } else if (this.phase === Phase.PLAYING) {
       let anyTrue = false;

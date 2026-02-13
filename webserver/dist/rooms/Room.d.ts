@@ -11,11 +11,13 @@ export declare class Room {
     playAgainVotes: Set<string>;
     playAgainTimer: ReturnType<typeof setTimeout> | null;
     expirationTimer: ReturnType<typeof setTimeout> | null;
+    private _aiTurnPending;
+    private _aiTimeout;
     onDestroy: () => void;
     constructor(code: string, onDestroy: () => void);
     getSeats(): SeatInfo[];
     addPlayer(playerId: string, displayName: string, isAI: boolean): SeatIndex | null;
-    addAIPlayers(count: number): void;
+    addAIPlayersAtSeats(seats: SeatIndex[]): void;
     getPlayer(playerId: string): PlayerConnection | undefined;
     getPlayerBySeat(seat: number): PlayerConnection | undefined;
     hasDisplayName(name: string): boolean;

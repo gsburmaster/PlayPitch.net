@@ -6,7 +6,7 @@ let session = null;
 let loadAttempted = false;
 // Resolve model path relative to project root (ML-Pitch-Theory/)
 const MODEL_DIR = path.resolve(import.meta.dirname, "../../");
-const MODEL_PATH = path.join(MODEL_DIR, "agent_0.onnx");
+const MODEL_PATH = path.join(MODEL_DIR, "agent_0_longtraining.onnx");
 async function getSession() {
     if (session)
         return session;

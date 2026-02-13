@@ -3,7 +3,7 @@ import type { SeatIndex } from "../types.js";
 export declare function generatePlayerId(): string;
 export declare class RoomManager {
     private rooms;
-    createRoom(displayName: string, aiPlayerCount: number): {
+    createRoom(displayName: string, aiSeats: SeatIndex[]): {
         room: Room;
         playerId: string;
         seatIndex: SeatIndex;

@@ -14,7 +14,7 @@ export function generatePlayerId() {
 }
 export class RoomManager {
     rooms = new Map();
-    createRoom(displayName, aiPlayerCount) {
+    createRoom(displayName, aiSeats) {
         let code = generateCode();
         while (this.rooms.has(code)) {
             code = generateCode();
@@ -25,9 +25,8 @@ export class RoomManager {
         const playerId = generatePlayerId();
         room.addPlayer(playerId, displayName, false);
         room.creatorSeat = 0;
-        // Add AI players from seat 3 backward
-        if (aiPlayerCount > 0) {
-            room.addAIPlayers(aiPlayerCount);
+        if (aiSeats.length > 0) {
+            room.addAIPlayersAtSeats(aiSeats);
         }
         this.rooms.set(code, room);
         return { room, playerId, seatIndex: 0 };

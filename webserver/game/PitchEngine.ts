@@ -468,7 +468,6 @@ export class PitchEngine {
       }
     }
     this.roundScores[winningTeam] += pointsWon;
-    pointsWon += this.currentTrick.reduce((sum, e) => sum + (e.card.rank === 2 ? cardPoints(e.card) : 0), 0);
 
     const result: TrickResult = {
       trick: this.currentTrick.map((e) => ({ card: e.card, seatIndex: e.seatIndex })),

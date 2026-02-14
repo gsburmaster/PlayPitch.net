@@ -610,6 +610,117 @@ describe("PitchEngine", () => {
       expect(tr!.data.winner).toBe(0);
       expect(tr!.data.pointsWon).toBe(1); // jack=1pt
     });
+
+    it("2 of trump scores for the team that played it, not the trick winner", () => {
+      const e = new PitchEngine();
+      e.reset(0);
+      e.phase = Phase.PLAYING;
+      e.trumpSuit = Suit.HEARTS;
+      e.currentPlayer = 0;
+      e.playingIterator = 0;
+
+      // Player 0 (team 0) plays 2, Player 1 (team 1) plays Ace and wins
+      e.hands[0] = [{ suit: Suit.HEARTS, rank: 2 }];
+      e.hands[1] = [{ suit: Suit.HEARTS, rank: 15 }]; // Ace
+      e.hands[2] = [{ suit: Suit.HEARTS, rank: 5 }];
+      e.hands[3] = [{ suit: Suit.HEARTS, rank: 6 }];
+
+      e.step(0); // player 0 plays 2
+      e.step(0); // player 1 plays Ace
+      e.step(0); // player 2 plays 5
+      const events = e.step(0); // player 3 plays 6
+      const tr = events.find((ev) => ev.type === "trickResult");
+      expect(tr!.data.winner).toBe(1); // Ace wins
+      // pointsWon should only include the Ace (1pt), not the 2
+      expect(tr!.data.pointsWon).toBe(1);
+      // 2's point goes to team 0 (player 0's team)
+      expect(tr!.data.roundScores[0]).toBe(1);
+      // Ace's point goes to team 1 (trick winner)
+      expect(tr!.data.roundScores[1]).toBe(1);
+    });
+
+    it("2 of trump scores correctly when played by winning team", () => {
+      const e = new PitchEngine();
+      e.reset(0);
+      e.phase = Phase.PLAYING;
+      e.trumpSuit = Suit.HEARTS;
+      e.currentPlayer = 0;
+      e.playingIterator = 0;
+
+      // Player 1 (team 1) plays 2, Player 3 (team 1) plays Ace and wins
+      e.hands[0] = [{ suit: Suit.HEARTS, rank: 5 }];
+      e.hands[1] = [{ suit: Suit.HEARTS, rank: 2 }];
+      e.hands[2] = [{ suit: Suit.HEARTS, rank: 6 }];
+      e.hands[3] = [{ suit: Suit.HEARTS, rank: 15 }]; // Ace
+
+      e.step(0); // player 0 plays 5
+      e.step(0); // player 1 plays 2
+      e.step(0); // player 2 plays 6
+      const events = e.step(0); // player 3 plays Ace
+      const tr = events.find((ev) => ev.type === "trickResult");
+      expect(tr!.data.winner).toBe(3); // Ace wins
+      // pointsWon should only include the Ace (1pt)
+      expect(tr!.data.pointsWon).toBe(1);
+      // Both 2 and Ace go to team 1
+      expect(tr!.data.roundScores[1]).toBe(2);
+    });
+
+    it("2 of trump with multiple scoring cards", () => {
+      const e = new PitchEngine();
+      e.reset(0);
+      e.phase = Phase.PLAYING;
+      e.trumpSuit = Suit.HEARTS;
+      e.currentPlayer = 0;
+      e.playingIterator = 0;
+
+      // Player 0 (team 0) plays 2, Player 1 (team 1) plays Ace and wins
+      // Player 2 plays 3 (3pts) — goes to trick winner (team 1)
+      e.hands[0] = [{ suit: Suit.HEARTS, rank: 2 }];
+      e.hands[1] = [{ suit: Suit.HEARTS, rank: 15 }]; // Ace
+      e.hands[2] = [{ suit: Suit.HEARTS, rank: 3 }];  // 3 = 3pts
+      e.hands[3] = [{ suit: Suit.HEARTS, rank: 5 }];
+
+      e.step(0);
+      e.step(0);
+      e.step(0);
+      const events = e.step(0);
+      const tr = events.find((ev) => ev.type === "trickResult");
+      expect(tr!.data.winner).toBe(1); // Ace wins
+      // pointsWon = Ace(1) + 3(3) = 4, excludes the 2
+      expect(tr!.data.pointsWon).toBe(4);
+      // 2's point to team 0
+      expect(tr!.data.roundScores[0]).toBe(1);
+      // Ace + 3 to team 1
+      expect(tr!.data.roundScores[1]).toBe(4);
+    });
+
+    it("2 of trump played by losing team alongside other scoring cards", () => {
+      const e = new PitchEngine();
+      e.reset(0);
+      e.phase = Phase.PLAYING;
+      e.trumpSuit = Suit.HEARTS;
+      e.currentPlayer = 0;
+      e.playingIterator = 0;
+
+      // Player 0 (team 0) plays Ace and wins, Player 1 (team 1) plays 2
+      e.hands[0] = [{ suit: Suit.HEARTS, rank: 15 }]; // Ace
+      e.hands[1] = [{ suit: Suit.HEARTS, rank: 2 }];
+      e.hands[2] = [{ suit: Suit.HEARTS, rank: 5 }];
+      e.hands[3] = [{ suit: Suit.HEARTS, rank: 6 }];
+
+      e.step(0);
+      e.step(0);
+      e.step(0);
+      const events = e.step(0);
+      const tr = events.find((ev) => ev.type === "trickResult");
+      expect(tr!.data.winner).toBe(0); // Ace wins
+      // pointsWon = Ace(1), excludes the 2
+      expect(tr!.data.pointsWon).toBe(1);
+      // Ace to team 0 (winner)
+      expect(tr!.data.roundScores[0]).toBe(1);
+      // 2's point to team 1 (player 1's team)
+      expect(tr!.data.roundScores[1]).toBe(1);
+    });
   });
 
   // --- Scoring ---

@@ -3,7 +3,7 @@ WORKDIR /app
 
 # Install webserver dependencies
 COPY webserver/package.json webserver/bun.lock ./webserver/
-RUN cd webserver && bun install --frozen-lockfile --production
+RUN cd webserver && bun install --production
 
 # Copy webserver source and compile TypeScript
 COPY webserver/ ./webserver/

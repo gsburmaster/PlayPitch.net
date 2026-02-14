@@ -123,17 +123,14 @@ export class PitchEngine {
       } else {
         mask[ACTION_PASS] = 1;
       }
-      if (currentBidAsMask < 14) {
+      if (currentBidAsMask < 17) {
         const start = this.currentBid > 0 ? currentBidAsMask + 1 : 11;
-        for (let i = start; i < 18; i++) {
+        for (let i = start; i <= 17; i++) {
           mask[i] = 1;
         }
       }
-      if (this.currentPlayer === this.dealer) {
-        if (currentBidAsMask === 14) {
-          // current bid is 8 (8+6=14), dealer can double
-          mask[18] = 1;
-        }
+      if (this.currentPlayer === this.dealer && currentBidAsMask === 17) {
+        mask[18] = 1; // dealer can double moon when someone bid moon
       }
     } else if (this.phase === Phase.CHOOSESUIT) {
       if (this.currentPlayer === this.currentHighBidder) {

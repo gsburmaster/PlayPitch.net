@@ -478,11 +478,10 @@ class PitchEnv(gym.Env):
                 mask[10] = self.current_player != self.dealer
             else:
                 mask[10] = 1
-            if (currentBidAsMask < 14):
-                mask[currentBidAsMask+1 if self.current_bid > 0 else 11:18] = 1 #TODO refactor this
-            if (self.current_player == self.dealer):
-                if (currentBidAsMask == 14):
-                    mask[18] = 1 # double shoot
+            if (currentBidAsMask < 17):
+                mask[currentBidAsMask+1 if self.current_bid > 0 else 11:18] = 1
+            if (self.current_player == self.dealer and currentBidAsMask == 17):
+                mask[18] = 1 # dealer can double moon when someone bid moon
         elif self.phase == Phase.CHOOSESUIT: # suit selection phase
             mask[19:23] = 1
         elif self.phase == Phase.PLAYING: # Playing phase

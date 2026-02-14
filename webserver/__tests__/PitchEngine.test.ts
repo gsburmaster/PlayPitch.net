@@ -152,7 +152,7 @@ describe("PitchEngine", () => {
       expect(mask[ACTION_PASS]).toBe(0); // can't pass
       expect(mask[11]).toBe(1); // can bid 5
       expect(mask[17]).toBe(1); // can bid Moon
-      expect(mask[18]).toBe(0); // can't double moon
+      expect(mask[18]).toBe(0); // can't double moon (no one bid moon)
       engine.step(11); // dealer bids 5
       expect(engine.phase).toBe(Phase.CHOOSESUIT);
       expect(engine.currentPlayer).toBe(0);
@@ -168,7 +168,7 @@ describe("PitchEngine", () => {
       for (let i = 11; i < 18; i++) {
         expect(mask[i]).toBe(1);
       }
-      // double moon not available to non-dealer
+      // double moon not available (no one bid moon yet)
       expect(mask[18]).toBe(0);
     });
 
@@ -211,24 +211,38 @@ describe("PitchEngine", () => {
       expect(mask[11]).toBe(1); // can bid 5
     });
 
-    it("dealer can double moon when current bid is 8", () => {
+    it("dealer can double moon when someone bid moon", () => {
       const e = new PitchEngine();
       e.reset(0);
       e.currentPlayer = 0; // dealer's turn
-      e.currentBid = 8; // bid is at 8 (currentBidAsMask=14)
+      e.currentBid = 11; // someone bid moon (bid value 11)
       e.phase = Phase.BIDDING;
       const mask = e.getActionMask();
       expect(mask[18]).toBe(1); // double moon
+      expect(mask[ACTION_PASS]).toBe(1); // can pass
+    });
+
+    it("dealer sees 9/10/moon when current bid is 8", () => {
+      const e = new PitchEngine();
+      e.reset(0);
+      e.currentPlayer = 0; // dealer's turn
+      e.currentBid = 8;
+      e.phase = Phase.BIDDING;
+      const mask = e.getActionMask();
+      expect(mask[15]).toBe(1); // can bid 9
+      expect(mask[16]).toBe(1); // can bid 10
+      expect(mask[17]).toBe(1); // can bid moon
+      expect(mask[18]).toBe(0); // can't double moon (no one bid moon)
     });
 
     it("non-dealer cannot double moon", () => {
       const e = new PitchEngine();
       e.reset(0);
       e.currentPlayer = 1;
-      e.currentBid = 8;
+      e.currentBid = 11; // someone bid moon
       e.phase = Phase.BIDDING;
       const mask = e.getActionMask();
-      expect(mask[18]).toBe(0);
+      expect(mask[18]).toBe(0); // non-dealer can't double moon
     });
 
     it("no card play actions during bidding", () => {

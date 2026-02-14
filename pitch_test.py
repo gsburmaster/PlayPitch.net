@@ -170,15 +170,24 @@ class TestPitchEnv(unittest.TestCase):
         self.env.reset()
         self.env.current_bid = 0
         mask = self.env._get_action_mask()
-        self.assertEqual(mask[10:19].tolist(), [1, 1, 1, 1, 1, 1, 1, 1, 0])  # Can pass, bid 5-10, shoot moon
+        self.assertEqual(mask[10:19].tolist(), [1, 1, 1, 1, 1, 1, 1, 1, 0])  # Can pass, bid 5-moon
 
     def test_get_action_mask_bidding_double_shoot(self):
         self.env.reset()
         self.env.current_bid = 8
-        self.env.current_high_bidder = self.env.dealer
+        self.env.current_high_bidder = (self.env.dealer + 1) % 4
         self.env.current_player = self.env.dealer
         mask = self.env._get_action_mask()
-        self.assertEqual(mask[10:19].tolist(), [1, 0, 0, 0, 0, 0, 0, 0, 1])  # Can pass, double shoot moon
+        self.assertEqual(mask[10:19].tolist(), [1, 0, 0, 0, 0, 1, 1, 1, 0])  # Can pass, bid 9-moon
+
+    def test_get_action_mask_bidding_dealer_double_moon(self):
+        """Dealer can double moon only when someone already bid moon"""
+        self.env.reset()
+        self.env.current_bid = 11  # someone bid moon (action 17, bid value 11)
+        self.env.current_high_bidder = (self.env.dealer + 1) % 4
+        self.env.current_player = self.env.dealer
+        mask = self.env._get_action_mask()
+        self.assertEqual(mask[10:19].tolist(), [1, 0, 0, 0, 0, 0, 0, 0, 1])  # Can pass or double moon
 
     def test_get_action_mask_bidding_dealer_must_bid(self):
         self.env.reset()
@@ -186,7 +195,7 @@ class TestPitchEnv(unittest.TestCase):
         self.env.current_high_bidder = (self.env.dealer+3) % 4
         self.env.current_player = self.env.dealer
         mask = self.env._get_action_mask()
-        self.assertEqual(mask[10:19].tolist(), [0, 1, 1, 1, 1, 1, 1, 1, 0])  # Can bid 5-10, shoot moon
+        self.assertEqual(mask[10:19].tolist(), [0, 1, 1, 1, 1, 1, 1, 1, 0])  # Can bid 5-moon
 
     def test_get_action_mask_bidding_non_dealer_can_bid(self):
         self.env.reset()
@@ -194,7 +203,7 @@ class TestPitchEnv(unittest.TestCase):
         self.env.current_high_bidder = 0
         self.env.current_player = 1
         mask = self.env._get_action_mask()
-        self.assertEqual(mask[10:19].tolist(), [1, 0, 0, 1, 1, 1, 1, 1, 0])  # Can bid 7-10, shoot moon
+        self.assertEqual(mask[10:19].tolist(), [1, 0, 0, 1, 1, 1, 1, 1, 0])  # Can bid 7-moon
 
 
     def test_get_action_mask_suit_choice(self):

@@ -2,8 +2,8 @@ FROM oven/bun:1 AS base
 WORKDIR /app
 
 # Install webserver dependencies
-COPY webserver/package.json webserver/bun.lock ./webserver/
-RUN cd webserver && bun install --production
+COPY webserver/package.json webserver/bun.lock* ./webserver/
+RUN cd webserver && bun install --no-frozen-lockfile --production
 
 # Copy webserver source and compile TypeScript
 COPY webserver/ ./webserver/

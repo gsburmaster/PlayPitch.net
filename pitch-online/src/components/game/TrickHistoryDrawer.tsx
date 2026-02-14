@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { TrickResultData } from "../../state/gameReducer";
 import type { SeatIndex } from "../../types";
-import { getRankDisplay, getSuitSymbol, getCardColor } from "../../types";
+import { getRankDisplay, getSuitSymbol } from "../../types";
 
 interface TrickHistoryDrawerProps {
   trickHistory: TrickResultData[];

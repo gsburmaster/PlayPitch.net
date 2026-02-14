@@ -1,13 +1,23 @@
-FROM oven/bun:1 AS base
+FROM oven/bun:1 AS build
 WORKDIR /app
 
-# Install webserver dependencies
+# Install all dependencies (including devDeps for tsc)
 COPY webserver/package.json ./webserver/
-RUN cd webserver && bun install --production
+RUN cd webserver && bun install
 
 # Copy webserver source and compile TypeScript
 COPY webserver/ ./webserver/
 RUN cd webserver && bun run build
+
+# Production stage — only runtime deps
+FROM oven/bun:1
+WORKDIR /app
+
+COPY webserver/package.json ./webserver/
+RUN cd webserver && bun install --production
+
+# Copy compiled output from build stage
+COPY --from=build /app/webserver/dist ./webserver/dist
 
 # Copy the ONNX model if it exists (optional -- AI falls back to random if missing)
 COPY agent_0.onnx* ./

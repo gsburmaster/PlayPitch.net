@@ -17,13 +17,23 @@ export function generatePlayerId(): string {
   return crypto.randomUUID();
 }
 
+const MAX_ROOMS = 1000;
+
 export class RoomManager {
   private rooms: Map<string, Room> = new Map();
+
+  get roomCount(): number {
+    return this.rooms.size;
+  }
 
   createRoom(
     displayName: string,
     aiSeats: SeatIndex[]
-  ): { room: Room; playerId: string; seatIndex: SeatIndex } {
+  ): { room: Room; playerId: string; seatIndex: SeatIndex } | { error: string; status: number } {
+    if (this.rooms.size >= MAX_ROOMS) {
+      return { error: "Server is at capacity, try again later", status: 503 };
+    }
+
     let code = generateCode();
     while (this.rooms.has(code)) {
       code = generateCode();

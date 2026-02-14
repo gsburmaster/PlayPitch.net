@@ -83,14 +83,14 @@ sudo ufw enable
 cd /opt
 sudo git clone <your-repo-url> pitch
 sudo chown -R $USER:$USER /opt/pitch
-cd /opt/pitch/ML-Pitch-Theory
+cd /opt/pitch
 ```
 
 If your ONNX model isn't in the repo (it probably shouldn't be -- it's large), copy it from your local machine:
 
 ```bash
 # From your local machine:
-scp ML-Pitch-Theory/agent_0_longtraining.onnx user@your-vps:/opt/pitch/ML-Pitch-Theory/
+scp ML-Pitch-Theory/agent_0_longtraining.onnx user@your-vps:/opt/pitch/
 ```
 
 ---
@@ -155,7 +155,7 @@ You can build the frontend either locally or on the VPS. Building on the VPS is 
 
 ```bash
 # On the VPS
-cd /opt/pitch/ML-Pitch-Theory/pitch-online
+cd /opt/pitch/pitch-online
 bun install
 bun run build
 ```
@@ -183,7 +183,7 @@ server {
     server_name your-domain.com;
 
     # Serve the frontend static build
-    root /opt/pitch/ML-Pitch-Theory/pitch-online/dist;
+    root /opt/pitch/pitch-online/dist;
     index index.html;
 
     # SPA fallback -- serve index.html for all frontend routes
@@ -257,7 +257,7 @@ sudo certbot renew --dry-run
 ## Step 9: Build and Start the Container
 
 ```bash
-cd /opt/pitch/ML-Pitch-Theory
+cd /opt/pitch
 sudo docker compose up -d --build
 ```
 
@@ -286,7 +286,7 @@ Then open `https://your-domain.com` in a browser.
 ## Step 10: Updating After Code Changes
 
 ```bash
-cd /opt/pitch/ML-Pitch-Theory
+cd /opt/pitch
 
 # Pull latest code
 git pull

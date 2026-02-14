@@ -33,12 +33,17 @@ export function createRoomRoutes(roomManager: RoomManager): Router {
       }
     }
 
-    const { room, playerId, seatIndex } = roomManager.createRoom(displayName, aiSeats);
+    const result = roomManager.createRoom(displayName, aiSeats);
+
+    if ("error" in result) {
+      res.status(result.status).json({ error: result.error });
+      return;
+    }
 
     res.status(201).json({
-      roomCode: room.code,
-      playerId,
-      seatIndex,
+      roomCode: result.room.code,
+      playerId: result.playerId,
+      seatIndex: result.seatIndex,
       wsUrl: `/ws`,
     });
   });

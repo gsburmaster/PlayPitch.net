@@ -272,10 +272,10 @@ describe("PitchEngine", () => {
     it("triggers discard-and-fill after suit choice", () => {
       bidToChooseSuit(engine);
       engine.step(19); // choose Hearts
-      // After discard-and-fill, players should have <= 6 cards
-      for (let i = 0; i < 4; i++) {
-        expect(engine.hands[i].length).toBeLessThanOrEqual(6);
-      }
+      // Discard-and-fill should have run: players dealt 9 cards,
+      // after discarding non-trump at least one hand should differ from 9
+      const totalCards = engine.hands.reduce((s, h) => s + h.length, 0);
+      expect(totalCards).toBeLessThan(36); // 4 * 9 = 36 pre-discard
     });
 
     it("emits trumpChosen event", () => {

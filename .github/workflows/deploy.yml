@@ -18,9 +18,15 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
+            export BUN_INSTALL="$HOME/.bun"
+            export PATH="$BUN_INSTALL/bin:$PATH"
+            if ! command -v bun &> /dev/null; then
+              curl -fsSL https://bun.sh/install | bash
+            fi
             cd /opt/pitch/ML-Pitch-Theory
             git pull origin main
-            sudo docker compose up -d --build
             cd pitch-online
             bun install
             bun run build
+            cd ..
+            sudo docker compose up -d --build

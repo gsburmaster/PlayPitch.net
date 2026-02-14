@@ -37,17 +37,17 @@ export default function Scoreboard({ scores, roundScores, currentBid, currentHig
   const bidderName = seats.find((s) => s.seatIndex === currentHighBidder)?.displayName ?? "";
 
   return (
-    <div className="scoreboard" style={{ color: "white", fontSize: "0.85rem" }}>
-      <div style={{ fontWeight: "bold", color: "#7cfc00" }}>
+    <div className="scoreboard">
+      <div className="scoreboard-local">
         Team {localTeam === 0 ? "A" : "B"}:{" "}
-        <span className={localBump ? "anim-score-bump" : ""} style={{ display: "inline-block" }}>
+        <span className={`d-inline-block ${localBump ? "anim-score-bump" : ""}`}>
           {scores[localTeam]}
         </span>{" "}
         (Round: {roundScores[localTeam]})
       </div>
-      <div>
+      <div className="scoreboard-other">
         Team {otherTeam === 0 ? "A" : "B"}:{" "}
-        <span className={otherBump ? "anim-score-bump" : ""} style={{ display: "inline-block" }}>
+        <span className={`d-inline-block ${otherBump ? "anim-score-bump" : ""}`}>
           {scores[otherTeam]}
         </span>{" "}
         (Round: {roundScores[otherTeam]})

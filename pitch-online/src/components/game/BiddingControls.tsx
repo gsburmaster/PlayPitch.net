@@ -26,7 +26,7 @@ export default function BiddingControls({ actionMask, currentBid, bidderName, on
 
   return (
     <div className="action-panel text-center">
-      <div className="mb-2 text-white" style={{ fontSize: "0.85rem" }}>{bidText}</div>
+      <div className="mb-2 text-white bid-text">{bidText}</div>
       <div className="d-flex flex-wrap gap-1 justify-content-center">
         <Button
           variant="outline-secondary"

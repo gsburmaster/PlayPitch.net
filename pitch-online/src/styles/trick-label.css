@@ -12,17 +12,17 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   margin-top: 2px;
-  color: rgba(255, 255, 255, 0.8);
+  color: var(--text-secondary);
   background: rgba(0, 0, 0, 0.7);
   padding: 1px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   pointer-events: none;
   opacity: 0;
   transition: opacity 150ms ease;
 }
 
 .trick-label-local {
-  color: #7cfc00;
+  color: var(--accent-local);
 }
 
 .trick-card-slot:hover .trick-label {

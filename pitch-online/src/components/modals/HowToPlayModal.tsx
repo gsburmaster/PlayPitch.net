@@ -13,7 +13,7 @@ export default function HowToPlayModal({ show, onClose }: HowToPlayModalProps) {
       </Modal.Header>
       <Modal.Body>
         <Section title="Overview">
-          <p>Pitch is a trick-taking card game for 4 players in 2 teams. Teammates sit across from each other (seats 0 &amp; 2 vs seats 1 &amp; 3). The deck is 52 cards plus 2 jokers. First team to <strong>54 points</strong> wins.</p>
+          <p>Pitch is a trick-taking card game for 4 players in 2 teams. Teammates sit across from each other. The deck is 52 cards plus 2 jokers. First team to <strong>54 points</strong> wins.</p>
         </Section>
 
         <Section title="Round Flow">
@@ -36,7 +36,7 @@ export default function HowToPlayModal({ show, onClose }: HowToPlayModalProps) {
 
         <Section title="Scoring Cards">
           <p className="mb-1">Each round has <strong>10 points</strong> available:</p>
-          <table className="table table-sm table-dark table-bordered mb-0" style={{ maxWidth: 300 }}>
+          <table className="rules-table">
             <thead>
               <tr><th>Card</th><th>Points</th></tr>
             </thead>
@@ -61,21 +61,21 @@ export default function HowToPlayModal({ show, onClose }: HowToPlayModalProps) {
           </ul>
         </Section>
 
-        <Section title="Winning" last>
+        <Section title="Winning">
           <p className="mb-0">The first team to reach <strong>54 points</strong> wins the game.</p>
         </Section>
       </Modal.Body>
       <Modal.Footer>
-        <Button variant="outline-light" onClick={onClose}>Got it</Button>
+        <Button variant="success" onClick={onClose}>Got it</Button>
       </Modal.Footer>
     </Modal>
   );
 }
 
-function Section({ title, children, last }: { title: string; children: React.ReactNode; last?: boolean }) {
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className={last ? "" : "mb-4"}>
-      <h6 className="text-warning">{title}</h6>
+    <div className="rules-section">
+      <h6 className="rules-section-title">{title}</h6>
       {children}
     </div>
   );

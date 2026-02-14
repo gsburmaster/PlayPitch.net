@@ -24,7 +24,7 @@ export default function LobbyScreen() {
   return (
     <div className="table-bg d-flex align-items-center justify-content-center" style={{ minHeight: "100vh" }}>
       <DisconnectedOverlay onReconnect={reconnect} />
-      <Card style={{ maxWidth: 500, width: "100%", backgroundColor: "rgba(0,50,0,0.85)", color: "white", border: "1px solid rgba(255,255,255,0.2)" }}>
+      <Card className="lobby-card">
         <Card.Body>
           <RoomCodeDisplay code={roomCode} />
           <SeatMap seats={seats} localSeat={seatIndex} />

@@ -1,4 +1,5 @@
 import "bootstrap/dist/css/bootstrap.min.css";
+import "./styles/theme.css";
 import { AppProvider, useAppState } from "./contexts/AppContext";
 import { GameProvider } from "./contexts/GameContext";
 import { ToastProvider } from "./components/common/Toast";

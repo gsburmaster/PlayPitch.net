@@ -118,7 +118,7 @@ export default function GameTable() {
       {/* Center: trick area + announcements */}
       <div className="game-center">
         {centerAnnouncement && (
-          <div className="text-white text-center mb-2" style={{ fontSize: "1.1rem" }}>
+          <div className="text-white text-center mb-2 center-announcement">
             {centerAnnouncement}
           </div>
         )}
@@ -129,7 +129,7 @@ export default function GameTable() {
           seatNames={seatNames}
         />
         {game.lastTrickResult && (
-          <div className="text-warning text-center mt-1" style={{ fontSize: "0.8rem" }}>
+          <div className="text-warning text-center mt-1 trick-result-text">
             {game.lastTrickResult.winnerName} wins the trick
             {game.lastTrickResult.pointsWon > 0 && ` (+${game.lastTrickResult.pointsWon} pts)`}
           </div>

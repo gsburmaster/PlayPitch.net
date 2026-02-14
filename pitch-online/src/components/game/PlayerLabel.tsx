@@ -11,14 +11,9 @@ export default function PlayerLabel({ name, isDealer, isConnected, isLocal, isCu
     <div className="player-label d-flex align-items-center gap-1 justify-content-center">
       <span
         className={`connection-dot ${isConnected ? "bg-success" : "bg-danger"}`}
-        style={{ width: 8, height: 8, borderRadius: "50%", display: "inline-block" }}
       />
       <span
-        className={isCurrentPlayer ? "anim-turn-glow" : ""}
-        style={{
-          fontWeight: isCurrentPlayer ? "bold" : "normal",
-          color: isLocal ? "#7cfc00" : "white",
-        }}
+        className={`player-name${isLocal ? " player-name--local" : ""}${isCurrentPlayer ? " player-name--active anim-turn-glow" : ""}`}
       >
         {name}
         {isLocal && " (You)"}

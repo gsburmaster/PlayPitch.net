@@ -28,8 +28,8 @@ export default function RoundSummaryOverlay({ data }: RoundSummaryOverlayProps) 
         <p>
           {otherTeamName} took {data.roundScores[otherTeam]} points
         </p>
-        <p style={{ fontWeight: "bold" }}>
-          Scores: Team A {data.totalScores[0]} | Team B {data.totalScores[1]}
+        <p>
+          <strong>Scores: Team A {data.totalScores[0]} | Team B {data.totalScores[1]}</strong>
         </p>
       </div>
     </div>

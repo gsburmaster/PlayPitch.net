@@ -17,7 +17,7 @@ export default function RoomCodeDisplay({ code }: RoomCodeDisplayProps) {
   return (
     <div className="d-flex align-items-center gap-2 justify-content-center mb-3">
       <h4 className="mb-0">
-        Room: <span style={{ letterSpacing: "0.2em", fontWeight: "bold" }}>{code}</span>
+        Room: <span className="room-code">{code}</span>
       </h4>
       <Button variant="outline-light" size="sm" onClick={handleCopy}>
         {copied ? "Copied!" : "Copy"}

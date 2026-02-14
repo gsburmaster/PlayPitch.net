@@ -46,16 +46,8 @@ export default function CreateGameModal({ show, onBack, onCreate, loading }: Cre
             <SeatButton seat={3} isAI={seatIsAI[3]} team={TEAM_LABELS[3]} position={POSITIONS[3]} onClick={toggleSeat} />
           </div>
           {/* Bottom seat: seat 0 (you) — not toggleable */}
-          <div
-            className="rounded p-2 text-center"
-            style={{
-              border: "2px solid #28a745",
-              backgroundColor: "rgba(40,167,69,0.15)",
-              minWidth: 130,
-              color: "white",
-            }}
-          >
-            <div style={{ fontWeight: "bold" }}>You</div>
+          <div className="rounded seat-btn seat-btn--you">
+            <div><strong>You</strong></div>
             <small className="text-muted">{POSITIONS[0]} - {TEAM_LABELS[0]}</small>
           </div>
         </div>
@@ -76,21 +68,13 @@ export default function CreateGameModal({ show, onBack, onCreate, loading }: Cre
 function SeatButton({ seat, isAI, team, position, onClick }: { seat: number; isAI: boolean; team: string; position: string; onClick: (seat: number) => void }) {
   return (
     <div
-      className="rounded p-2 text-center"
-      style={{
-        border: `2px solid ${isAI ? "#ffc107" : "rgba(255,255,255,0.3)"}`,
-        backgroundColor: isAI ? "rgba(255,193,7,0.12)" : "rgba(0,0,0,0.3)",
-        minWidth: 130,
-        cursor: "pointer",
-        color: "white",
-        userSelect: "none",
-      }}
+      className={`rounded seat-btn ${isAI ? "seat-btn--ai" : "seat-btn--open"}`}
       onClick={() => onClick(seat)}
       role="button"
       tabIndex={0}
       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onClick(seat); }}
     >
-      <div style={{ fontWeight: "bold" }}>{isAI ? "AI" : "Open"}</div>
+      <div><strong>{isAI ? "AI" : "Open"}</strong></div>
       <small className="text-muted">{position} - {team}</small>
     </div>
   );

@@ -1,6 +1,9 @@
 .table-bg {
-  background: radial-gradient(ellipse at center, #1a5c2a 0%, #0d3318 70%, #071a0d 100%);
+  background: var(--table-bg);
+  font-family: var(--font-sans);
+  color: var(--text-primary);
   min-height: 100vh;
+  min-height: 100dvh;
 }
 
 /* Game table layout */
@@ -20,6 +23,12 @@
   justify-content: space-between;
   align-items: flex-start;
   z-index: 10;
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-sm) var(--space-md);
 }
 
 .game-position-top {
@@ -78,11 +87,14 @@
 }
 
 .overlay-content {
-  background: rgba(0, 50, 0, 0.95);
+  background: var(--panel-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
   color: white;
   padding: 2rem 3rem;
-  border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--panel-border);
+  box-shadow: var(--shadow-lg);
   max-width: 500px;
 }
 
@@ -111,9 +123,504 @@
   position: relative;
 }
 
+/* Glass panel utility */
+.glass-panel {
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-md);
+}
+
+/* Chip utility */
+.chip {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: var(--radius-pill);
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
 /* Scoreboard */
 .scoreboard {
   line-height: 1.4;
+  font-size: 0.85rem;
+  color: var(--text-primary);
+}
+
+.scoreboard-local {
+  font-weight: bold;
+  color: var(--accent-local);
+}
+
+.scoreboard-other {
+  color: var(--text-primary);
+}
+
+/* Bid bubble */
+.bid-bubble {
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  background-color: rgba(40, 167, 69, 0.85);
+  color: white;
+  font-weight: bold;
+  animation: popIn 200ms ease-out;
+}
+
+.bid-bubble--pass {
+  background-color: rgba(128, 128, 128, 0.7);
+  font-weight: normal;
+}
+
+/* Player label */
+.player-label {
+  font-size: 0.85rem;
+}
+
+.player-name {
+  color: white;
+}
+
+.player-name--local {
+  color: var(--accent-local);
+}
+
+.player-name--active {
+  font-weight: bold;
+}
+
+.connection-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+/* Trick history drawer */
+.trick-btn {
+  background-color: rgba(0, 0, 0, 0.4);
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: var(--radius-sm);
+  padding: 4px 10px;
+  font-size: 0.75rem;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 150ms ease;
+}
+
+.trick-btn:hover,
+.trick-btn--open {
+  background-color: rgba(255, 255, 255, 0.2);
+}
+
+.drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 280px;
+  max-width: 85vw;
+  background-color: rgba(0, 30, 0, 0.95);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border-left: 1px solid rgba(255, 255, 255, 0.15);
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  animation: slideInRight 0.2s ease-out;
+}
+
+.drawer-header {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--surface-border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.drawer-header-title {
+  color: white;
+  font-weight: bold;
+  font-size: 0.9rem;
+}
+
+.drawer-close {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 1.2rem;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.drawer-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 12px;
+}
+
+.drawer-empty {
+  color: var(--text-muted);
+  text-align: center;
+  margin-top: 24px;
+  font-size: 0.85rem;
+}
+
+.drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.3);
+  z-index: 49;
+}
+
+.trick-entry {
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background-color: var(--surface);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.trick-entry-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.trick-entry-number {
+  color: var(--text-secondary);
+  font-size: 0.7rem;
+  font-weight: bold;
+}
+
+.trick-entry-points {
+  color: var(--accent-gold);
+  font-size: 0.7rem;
+}
+
+.trick-card-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.trick-card-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.trick-card-line--winner {
+  color: var(--accent-gold);
+  font-weight: bold;
+}
+
+.trick-card-name {
+  width: 55px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trick-card-name--local {
+  color: var(--accent-local);
+}
+
+.trick-winner-line {
+  color: var(--accent-gold);
+  font-size: 0.7rem;
+  margin-top: 4px;
+}
+
+/* Toast notifications */
+.toast-container {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+  max-width: 90vw;
+}
+
+.toast-item {
+  pointer-events: auto;
+  cursor: pointer;
+  padding: 10px 20px;
+  border-radius: var(--radius-sm);
+  color: white;
+  font-size: 0.9rem;
+  box-shadow: var(--shadow-md);
+  animation: toast-in 0.25s ease-out;
+  min-width: 200px;
+  text-align: center;
+}
+
+.toast-error   { background-color: #dc3545; }
+.toast-warning { background-color: #e67e22; }
+.toast-success { background-color: #28a745; }
+.toast-info    { background-color: #17a2b8; }
+
+/* Disconnected overlay */
+.disconnected-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
+  background-color: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.disconnected-box {
+  background-color: #1a1a2e;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: var(--radius-lg);
+  padding: 32px 40px;
+  text-align: center;
+  color: white;
+  max-width: 380px;
+}
+
+.disconnected-icon {
+  font-size: 2rem;
+  margin-bottom: 12px;
+}
+
+.disconnected-text {
+  color: #aaa;
+  font-size: 0.9rem;
+  margin-bottom: 20px;
+}
+
+.disconnected-btn {
+  padding: 10px 28px;
+  border-radius: var(--radius-sm);
+  border: none;
+  background-color: #28a745;
+  color: white;
+  font-size: 1rem;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid rgba(255, 255, 255, 0.2);
+  border-top-color: #ffc107;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin: 0 auto;
+}
+
+/* Mute button */
+.mute-btn {
+  position: fixed;
+  bottom: 10px;
+  right: 10px;
+  z-index: 9999;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  background-color: rgba(0, 0, 0, 0.5);
+  color: white;
+  font-size: 1.1rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+/* Connection badge */
+.connection-badge {
+  position: fixed;
+  top: 10px;
+  right: 10px;
+  z-index: 9999;
+  padding: 4px 12px;
+  border-radius: 4px;
+  color: white;
+  font-size: 0.75rem;
+}
+
+.connection-badge--warning {
+  background-color: #ffc107;
+}
+
+.connection-badge--error {
+  background-color: #dc3545;
+}
+
+/* Lobby seat slots */
+.seat-slot {
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  background-color: rgba(0, 0, 0, 0.3);
+  min-width: 120px;
+  color: white;
+}
+
+.seat-slot--local {
+  border-color: #28a745;
+}
+
+.seat-slot-name--local {
+  font-weight: bold;
+}
+
+/* Room code */
+.room-code {
+  letter-spacing: 0.2em;
+  font-weight: bold;
+}
+
+/* Lobby card */
+.lobby-card {
+  max-width: 500px;
+  width: 100%;
+  background-color: rgba(0, 50, 0, 0.85);
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+/* Suit picker buttons */
+.suit-btn {
+  font-size: 1.5rem;
+  min-width: 60px;
+}
+
+.suit-btn--red { color: #dc3545; }
+.suit-btn--dark { color: #333; }
+
+/* Game over */
+.game-over-win  { color: gold; }
+.game-over-lose { color: #dc3545; }
+
+/* Center announcement */
+.center-announcement {
+  font-size: 1.1rem;
+}
+
+.trick-result-text {
+  font-size: 0.8rem;
+}
+
+/* Create game modal seat buttons */
+.seat-btn {
+  border-radius: var(--radius-sm);
+  padding: var(--space-sm);
+  text-align: center;
+  min-width: 130px;
+  color: white;
+  user-select: none;
+  cursor: pointer;
+}
+
+.seat-btn--ai {
+  border: 2px solid #ffc107;
+  background-color: rgba(255, 193, 7, 0.12);
+}
+
+.seat-btn--open {
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  background-color: rgba(0, 0, 0, 0.3);
+}
+
+.seat-btn--you {
+  border: 2px solid #28a745;
+  background-color: rgba(40, 167, 69, 0.15);
+  cursor: default;
+}
+
+/* How to Play modal */
+.rules-section {
+  margin-bottom: var(--space-lg);
+}
+
+.rules-section:last-child {
+  margin-bottom: 0;
+}
+
+.rules-section-title {
+  color: var(--accent-green);
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: var(--space-sm);
+}
+
+.rules-section p,
+.rules-section li {
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.rules-section strong {
+  color: var(--text-primary);
+}
+
+.rules-section em {
+  color: var(--accent-red);
+  font-style: normal;
+  font-weight: 500;
+}
+
+.rules-table {
+  width: 100%;
+  max-width: 320px;
+  border-collapse: separate;
+  border-spacing: 0;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  font-size: 0.85rem;
+}
+
+.rules-table th {
+  background-color: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+  font-weight: 600;
+  padding: 8px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--surface-border);
+}
+
+.rules-table td {
+  padding: 6px 12px;
+  color: var(--text-secondary);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.rules-table tr:last-child td {
+  border-bottom: none;
+}
+
+.rules-table td:last-child {
+  text-align: right;
+  color: var(--accent-gold);
+  font-weight: 500;
+  font-family: var(--font-mono);
+}
+
+/* Modal close button visibility on dark bg */
+.modal-header .btn-close {
+  filter: invert(1) grayscale(100%) brightness(200%);
+}
+
+/* Bidding controls text */
+.bid-text {
+  font-size: 0.85rem;
 }
 
 /* Animations */
@@ -148,6 +655,11 @@
   to { opacity: 1; transform: translateX(0); }
 }
 
+@keyframes slideInRight {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
 @keyframes winPulse {
   0%, 100% { box-shadow: 0 0 12px rgba(255, 215, 0, 0.6); }
   50% { box-shadow: 0 0 24px rgba(255, 215, 0, 0.9); }
@@ -172,6 +684,15 @@
 @keyframes fadeIn {
   from { opacity: 0; }
   to { opacity: 1; }
+}
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(-12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
 /* Animation utility classes */

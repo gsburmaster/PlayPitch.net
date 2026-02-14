@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 // Mock pickAIAction before importing Room
 vi.mock("../ai/AIPlayer.js", () => ({
   pickAIAction: vi.fn().mockResolvedValue(10), // default: pass
+  getAIModelStatus: vi.fn().mockReturnValue(true),
 }));
 
 import { Room } from "../rooms/Room.js";

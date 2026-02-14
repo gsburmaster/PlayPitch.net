@@ -9,6 +9,7 @@ interface ActionPanelProps {
   isMyTurn: boolean;
   currentBid: number;
   currentHighBidder: number;
+  currentPlayer: number;
   seats: SeatInfo[];
   trumpChooserName?: string;
   onAction: (action: number) => void;
@@ -20,19 +21,31 @@ export default function ActionPanel({
   isMyTurn,
   currentBid,
   currentHighBidder,
+  currentPlayer,
   seats,
   trumpChooserName,
   onAction,
 }: ActionPanelProps) {
   if (!isMyTurn || !actionMask) {
-    // Show waiting text
+    const currentPlayerName = seats.find((s) => s.seatIndex === currentPlayer)?.displayName;
+
     if (phase === 1 && trumpChooserName) {
       return (
-        <div className="action-panel text-center text-white" style={{ fontSize: "0.85rem" }}>
+        <div className="action-panel text-center text-white" style={{ fontSize: "0.85rem", opacity: 0.7 }}>
           Waiting for {trumpChooserName} to choose trump...
         </div>
       );
     }
+
+    if (currentPlayerName) {
+      const action = phase === 0 ? "bid" : "play";
+      return (
+        <div className="action-panel text-center text-white" style={{ fontSize: "0.85rem", opacity: 0.7 }}>
+          Waiting for {currentPlayerName} to {action}...
+        </div>
+      );
+    }
+
     return null;
   }
 

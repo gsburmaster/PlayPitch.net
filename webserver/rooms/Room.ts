@@ -1,7 +1,7 @@
 import type { WebSocket } from "ws";
 import { PitchEngine } from "../game/PitchEngine.js";
 import { cardToData } from "../game/constants.js";
-import { pickAIAction } from "../ai/AIPlayer.js";
+import { pickAIAction, getAIModelStatus } from "../ai/AIPlayer.js";
 import type {
   SeatIndex,
   SeatInfo,
@@ -197,6 +197,9 @@ export class Room {
     this.engine.reset();
 
     // Send game:start to each player with their own hand
+    const hasAI = this.players.some((p) => p.isAI);
+    const aiModelLoaded = hasAI ? getAIModelStatus() : null;
+
     for (const p of this.players) {
       if (!p.isAI) {
         this.send(p.playerId, {
@@ -207,6 +210,7 @@ export class Room {
           phase: this.engine.phase,
           scores: [...this.engine.scores] as [number, number],
           roundNumber: this.engine.numberOfRoundsPlayed,
+          aiModelLoaded,
         });
       }
     }
@@ -429,6 +433,7 @@ export class Room {
     }
 
     if (this.state === "playing" || this.state === "gameOver") {
+      const hasAI = this.players.some((p) => p.isAI);
       // Send game:start with current hand
       this.send(playerId, {
         type: "game:start",
@@ -438,6 +443,7 @@ export class Room {
         phase: this.engine.phase,
         scores: [...this.engine.scores] as [number, number],
         roundNumber: this.engine.numberOfRoundsPlayed,
+        aiModelLoaded: hasAI ? getAIModelStatus() : null,
       });
 
       if (this.engine.trumpSuit !== null) {

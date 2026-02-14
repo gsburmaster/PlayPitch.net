@@ -1,12 +1,24 @@
 :root {
   --card-width: 80px;
   --card-height: 112px;
+  --card-overlap: 28px;
 }
 
+/* Tablet */
+@media (max-width: 1023px) and (min-width: 768px) {
+  :root {
+    --card-width: 68px;
+    --card-height: 95px;
+    --card-overlap: 24px;
+  }
+}
+
+/* Phone */
 @media (max-width: 767px) {
   :root {
-    --card-width: 56px;
-    --card-height: 78px;
+    --card-width: 52px;
+    --card-height: 73px;
+    --card-overlap: 18px;
   }
 }
 
@@ -112,6 +124,14 @@
     transform: translateY(-12px);
     box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
     z-index: 100;
+  }
+}
+
+/* On touch devices, make playable cards glow instead of hover-lift */
+@media (hover: none) {
+  .pitch-card.playable {
+    box-shadow: 0 0 8px rgba(40, 167, 69, 0.5);
+    border-color: #28a745;
   }
 }
 

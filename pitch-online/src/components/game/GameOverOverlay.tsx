@@ -14,8 +14,8 @@ export default function GameOverOverlay({ data, localSeat, onPlayAgain, onLeave 
   const didWin = data.winner === localTeam;
 
   return (
-    <div className="game-overlay">
-      <div className="overlay-content text-center">
+    <div className="game-overlay overlay-anim">
+      <div className="overlay-content overlay-content-anim text-center">
         <h2 style={{ color: didWin ? "gold" : "#dc3545" }}>
           {didWin ? "You Win!" : "You Lose"}
         </h2>

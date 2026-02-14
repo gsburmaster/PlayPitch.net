@@ -1,3 +1,4 @@
+import { useRef, useEffect, useState } from "react";
 import { getSuitSymbol, getCardColor } from "../../types";
 
 interface TrumpIndicatorProps {
@@ -5,6 +6,19 @@ interface TrumpIndicatorProps {
 }
 
 export default function TrumpIndicator({ trumpSuit }: TrumpIndicatorProps) {
+  const prevSuit = useRef<number | null>(null);
+  const [animating, setAnimating] = useState(false);
+
+  useEffect(() => {
+    if (trumpSuit !== null && prevSuit.current !== trumpSuit) {
+      setAnimating(true);
+      const timer = setTimeout(() => setAnimating(false), 500);
+      prevSuit.current = trumpSuit;
+      return () => clearTimeout(timer);
+    }
+    prevSuit.current = trumpSuit;
+  }, [trumpSuit]);
+
   if (trumpSuit === null) {
     return (
       <div style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.85rem" }}>
@@ -18,7 +32,13 @@ export default function TrumpIndicator({ trumpSuit }: TrumpIndicatorProps) {
 
   return (
     <div style={{ fontSize: "0.85rem", color: "white" }}>
-      Trump: <span style={{ color, fontSize: "1.2rem" }}>{symbol}</span>
+      Trump:{" "}
+      <span
+        className={animating ? "anim-trump-reveal" : ""}
+        style={{ color, fontSize: "1.2rem", display: "inline-block" }}
+      >
+        {symbol}
+      </span>
     </div>
   );
 }

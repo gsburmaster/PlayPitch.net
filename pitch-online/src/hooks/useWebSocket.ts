@@ -1,6 +1,8 @@
 import { useRef, useCallback, useEffect } from "react";
 import { useAppState, useAppDispatch } from "../contexts/AppContext";
 import { useGameDispatch } from "../contexts/GameContext";
+import { useToast } from "../components/common/Toast";
+import { useSound } from "./useSound";
 import type { SeatInfo } from "../types";
 
 const WS_BASE = import.meta.env.VITE_WS_URL || (
@@ -13,6 +15,8 @@ export function useWebSocket() {
   const appState = useAppState();
   const appDispatch = useAppDispatch();
   const gameDispatch = useGameDispatch();
+  const { addToast } = useToast();
+  const { play: playSound } = useSound();
   const wsRef = useRef<WebSocket | null>(null);
   const pingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const reconnectAttemptRef = useRef(0);
@@ -114,6 +118,9 @@ export function useWebSocket() {
           roundNumber: msg.roundNumber as number,
           seats: [],
         });
+        if (msg.aiModelLoaded === false) {
+          addToast("AI model not loaded — bots are playing randomly", "warning", 6000);
+        }
         break;
 
       case "game:turn":
@@ -126,6 +133,9 @@ export function useWebSocket() {
           currentHighBidder: msg.currentHighBidder as number,
           trumpSuit: msg.trumpSuit as number | null,
         });
+        if ((msg.currentPlayer as number) === appState.seatIndex && msg.actionMask) {
+          playSound("yourTurn");
+        }
         break;
 
       case "game:bid":
@@ -135,6 +145,7 @@ export function useWebSocket() {
           action: msg.action as "pass" | number,
           displayName: msg.displayName as string,
         });
+        playSound(msg.action === "pass" ? "pass" : "bid");
         break;
 
       case "game:trumpChosen":
@@ -145,6 +156,7 @@ export function useWebSocket() {
           bidderName: msg.bidderName as string,
           bidAmount: msg.bidAmount as number,
         });
+        playSound("trumpChosen");
         break;
 
       case "game:handUpdate":
@@ -162,6 +174,7 @@ export function useWebSocket() {
           card: msg.card as never,
           handIndex: msg.handIndex as number,
         });
+        playSound("cardPlay");
         break;
 
       case "game:noValidPlay":
@@ -179,6 +192,7 @@ export function useWebSocket() {
             roundScores: msg.roundScores as [number, number],
           },
         });
+        playSound("trickWon");
         // Auto-clear trick after delay
         setTimeout(() => {
           gameDispatch({ type: "CLEAR_TRICK_RESULT" });
@@ -190,6 +204,7 @@ export function useWebSocket() {
           type: "ROUND_END",
           data: msg as unknown as never,
         });
+        playSound("roundEnd");
         // Auto-clear after 3 seconds
         setTimeout(() => {
           gameDispatch({ type: "CLEAR_ROUND_END" });
@@ -207,16 +222,20 @@ export function useWebSocket() {
         });
         break;
 
-      case "game:over":
+      case "game:over": {
+        const winner = msg.winner as 0 | 1;
         gameDispatch({
           type: "GAME_OVER",
           data: {
-            winner: msg.winner as 0 | 1,
+            winner,
             finalScores: msg.finalScores as [number, number],
             reason: msg.reason as string,
           },
         });
+        const localTeam = appState.seatIndex !== null ? appState.seatIndex % 2 : -1;
+        playSound(winner === localTeam ? "gameWin" : "gameLose");
         break;
+      }
 
       case "lobby:return":
         appDispatch({ type: "RETURN_TO_LOBBY" });
@@ -234,7 +253,7 @@ export function useWebSocket() {
         break;
 
       case "error":
-        console.error("Server error:", msg.message, msg.code);
+        addToast(String(msg.message || "Server error"), "error");
         break;
 
       case "pong":
@@ -279,5 +298,10 @@ export function useWebSocket() {
     }
   }, []);
 
-  return { sendAction, startGame, leaveRoom, playAgain };
+  const reconnect = useCallback(() => {
+    reconnectAttemptRef.current = 0;
+    connect();
+  }, [connect]);
+
+  return { sendAction, startGame, leaveRoom, playAgain, reconnect };
 }

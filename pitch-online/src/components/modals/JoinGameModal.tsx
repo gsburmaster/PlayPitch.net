@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Alert, Button, Form, Modal } from "react-bootstrap";
+import { Alert, Button, Form, Modal, Spinner } from "react-bootstrap";
 
 interface JoinGameModalProps {
   show: boolean;
@@ -40,7 +40,7 @@ export default function JoinGameModal({ show, onBack, onJoin, loading, error }: 
           Back
         </Button>
         <Button variant="primary" onClick={() => onJoin(code)} disabled={!isValid || loading}>
-          {loading ? "Joining..." : "Join"}
+          {loading ? <><Spinner animation="border" size="sm" className="me-2" />Joining...</> : "Join"}
         </Button>
       </Modal.Footer>
     </Modal>

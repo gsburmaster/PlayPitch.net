@@ -47,6 +47,7 @@ export interface GameState {
   scores: [number, number];
   roundScores: [number, number];
   lastTrickResult: TrickResultData | null;
+  trickHistory: TrickResultData[];
   roundEndData: RoundEndData | null;
   gameOverData: GameOverData | null;
   localSeat: number | null;
@@ -69,6 +70,7 @@ export const initialGameState: GameState = {
   scores: [0, 0],
   roundScores: [0, 0],
   lastTrickResult: null,
+  trickHistory: [],
   roundEndData: null,
   gameOverData: null,
   localSeat: null,
@@ -166,6 +168,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       return {
         ...state,
         lastTrickResult: action.data,
+        trickHistory: [...state.trickHistory, action.data],
         roundScores: action.data.roundScores,
       };
     case "CLEAR_TRICK_RESULT":
@@ -197,6 +200,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         currentTrick: [],
         roundScores: [0, 0],
         lastTrickResult: null,
+        trickHistory: [],
         roundEndData: null,
       };
     case "GAME_OVER":

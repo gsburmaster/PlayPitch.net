@@ -13,7 +13,13 @@ export default function PlayerLabel({ name, isDealer, isConnected, isLocal, isCu
         className={`connection-dot ${isConnected ? "bg-success" : "bg-danger"}`}
         style={{ width: 8, height: 8, borderRadius: "50%", display: "inline-block" }}
       />
-      <span style={{ fontWeight: isCurrentPlayer ? "bold" : "normal", color: isLocal ? "#7cfc00" : "white" }}>
+      <span
+        className={isCurrentPlayer ? "anim-turn-glow" : ""}
+        style={{
+          fontWeight: isCurrentPlayer ? "bold" : "normal",
+          color: isLocal ? "#7cfc00" : "white",
+        }}
+      >
         {name}
         {isLocal && " (You)"}
       </span>

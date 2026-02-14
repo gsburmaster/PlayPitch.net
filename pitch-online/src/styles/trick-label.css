@@ -28,3 +28,28 @@
 .trick-card-slot:hover .trick-label {
   opacity: 1;
 }
+
+/* Responsive trick area sizing */
+.trick-area-responsive {
+  width: 200px;
+  height: 160px;
+}
+
+@media (max-width: 1023px) and (min-width: 768px) {
+  .trick-area-responsive {
+    width: 180px;
+    height: 140px;
+  }
+}
+
+@media (max-width: 767px) {
+  .trick-area-responsive {
+    width: 150px;
+    height: 120px;
+  }
+
+  /* Always show trick labels on mobile (no hover) */
+  .trick-label {
+    opacity: 0.8;
+  }
+}

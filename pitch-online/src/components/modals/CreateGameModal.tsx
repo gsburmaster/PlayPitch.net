@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Button, Form, Modal } from "react-bootstrap";
+import { Button, Form, Modal, Spinner } from "react-bootstrap";
 
 interface CreateGameModalProps {
   show: boolean;
@@ -66,7 +66,7 @@ export default function CreateGameModal({ show, onBack, onCreate, loading }: Cre
           Back
         </Button>
         <Button variant="success" onClick={() => onCreate(aiSeats)} disabled={loading}>
-          {loading ? "Creating..." : "Create"}
+          {loading ? <><Spinner animation="border" size="sm" className="me-2" />Creating...</> : "Create"}
         </Button>
       </Modal.Footer>
     </Modal>

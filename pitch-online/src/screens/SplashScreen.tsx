@@ -3,6 +3,7 @@ import NameEntryModal from "../components/modals/NameEntryModal";
 import CreateGameModal from "../components/modals/CreateGameModal";
 import JoinGameModal from "../components/modals/JoinGameModal";
 import { useAppDispatch } from "../contexts/AppContext";
+import { useToast } from "../components/common/Toast";
 import type { SeatIndex } from "../types";
 import "../styles/splash.css";
 
@@ -12,6 +13,7 @@ type ModalView = "name" | "create" | "join";
 
 export default function SplashScreen() {
   const dispatch = useAppDispatch();
+  const { addToast } = useToast();
   const [modalView, setModalView] = useState<ModalView>("name");
   const [displayName, setDisplayName] = useState("");
   const [loading, setLoading] = useState(false);
@@ -35,7 +37,7 @@ export default function SplashScreen() {
         isCreator: true,
       });
     } catch {
-      setJoinError("Failed to create room");
+      addToast("Failed to create room", "error");
     } finally {
       setLoading(false);
     }
@@ -65,6 +67,7 @@ export default function SplashScreen() {
       });
     } catch {
       setJoinError("Failed to connect to server");
+      addToast("Failed to connect to server", "error");
     } finally {
       setLoading(false);
     }

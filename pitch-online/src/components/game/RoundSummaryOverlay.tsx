@@ -11,8 +11,8 @@ export default function RoundSummaryOverlay({ data }: RoundSummaryOverlayProps) 
   const otherTeam = 1 - data.bidderTeam;
 
   return (
-    <div className="game-overlay">
-      <div className="overlay-content text-center">
+    <div className="game-overlay overlay-anim">
+      <div className="overlay-content overlay-content-anim text-center">
         <h3>Round Over!</h3>
         <p>
           {bidderTeamName} took {data.roundScores[data.bidderTeam]} points (Bid: {bidDisplay(data.bidAmount)})

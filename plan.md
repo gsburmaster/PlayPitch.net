@@ -20,40 +20,40 @@ The app has a **functional core**: Python gym environment for RL training, TypeS
 These are low-effort, high-impact improvements to make the current experience solid.
 
 ### 1.1 Error Handling & User Feedback
-- [ ] Show toast notifications for errors (currently only `console.error`)
-- [ ] Add a "you were disconnected" modal with reconnect button (beyond the small status indicator)
-- [ ] Surface AI fallback status — tell players when AI is using random moves (model not found)
-- [ ] Add loading states/spinners during room creation and game start
+- [x] Show toast notifications for errors (currently only `console.error`)
+- [x] Add a "you were disconnected" modal with reconnect button (beyond the small status indicator)
+- [x] Surface AI fallback status — tell players when AI is using random moves (model not found)
+- [x] Add loading states/spinners during room creation and game start
 
 ### 1.2 Mobile & Responsive Improvements
-- [ ] Test and fix layout on phones (portrait + landscape)
-- [ ] Add a third breakpoint for tablets
-- [ ] Make card sizes/spacing scale better on small screens
-- [ ] Ensure action buttons (bid, play) are thumb-friendly on mobile
+- [x] Test and fix layout on phones (portrait + landscape)
+- [x] Add a third breakpoint for tablets
+- [x] Make card sizes/spacing scale better on small screens
+- [x] Ensure action buttons (bid, play) are thumb-friendly on mobile
 
 ### 1.3 Animations & Visual Feedback
-- [ ] Card play animation (card moves from hand to center)
-- [ ] Trick win animation (cards slide to winner)
-- [ ] Score change animation (number tick-up effect)
-- [ ] Bid announcement animation
-- [ ] Trump suit reveal animation
-- [ ] Highlight whose turn it is more prominently
+- [x] Card play animation (card moves from hand to center)
+- [x] Trick win animation (cards slide to winner)
+- [x] Score change animation (number tick-up effect)
+- [x] Bid announcement animation
+- [x] Trump suit reveal animation
+- [x] Highlight whose turn it is more prominently
 
 ### 1.4 Sound Effects
-- [ ] Card play sound
-- [ ] Trick won sound
-- [ ] Bid/pass sounds
-- [ ] Round end fanfare
-- [ ] Game win/lose sounds
+- [x] Card play sound
+- [x] Trick won sound
+- [x] Bid/pass sounds
+- [x] Round end fanfare
+- [x] Game win/lose sounds
 - [ ] Master volume toggle in a settings menu
-- [ ] Mute button always visible
+- [x] Mute button always visible
 
 ### 1.5 Minor Game UX
-- [ ] Contextual tooltips during gameplay (e.g., "You must follow trump" when hand is filtered)
-- [ ] Show card point values on hover
-- [ ] Trick history viewer — scroll through past tricks in the current round
+- [x] Contextual tooltips during gameplay (e.g., "You must follow trump" when hand is filtered)
+- [x] Show card point values on hover
+- [x] Trick history viewer — scroll through past tricks in the current round
 - [ ] Confirm dialog for high-stakes plays (optional setting)
-- [ ] Show "waiting for [Player]..." indicator when it's another player's turn
+- [x] Show "waiting for [Player]..." indicator when it's another player's turn
 
 ---
 

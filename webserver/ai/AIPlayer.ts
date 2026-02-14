@@ -33,6 +33,14 @@ async function getSession(): Promise<ort.InferenceSession | null> {
 }
 
 /**
+ * Returns whether the ONNX model is loaded (true), failed/missing (false), or not yet attempted (null).
+ */
+export function getAIModelStatus(): boolean | null {
+  if (!loadAttempted) return null;
+  return session !== null;
+}
+
+/**
  * Pick an action for the AI player.
  * Uses the ONNX model if available, otherwise random valid action.
  */

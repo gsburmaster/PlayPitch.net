@@ -10,13 +10,15 @@ import TrickArea from "../components/game/TrickArea";
 import ActionPanel from "../components/game/ActionPanel";
 import RoundSummaryOverlay from "../components/game/RoundSummaryOverlay";
 import GameOverOverlay from "../components/game/GameOverOverlay";
+import DisconnectedOverlay from "../components/common/DisconnectedOverlay";
+import TrickHistoryDrawer from "../components/game/TrickHistoryDrawer";
 import { bidDisplay } from "../types";
 import "../styles/table.css";
 
 export default function GameTable() {
   const { seatIndex: localSeat } = useAppState();
   const game = useGameState();
-  const { sendAction, playAgain, leaveRoom } = useWebSocket();
+  const { sendAction, playAgain, leaveRoom, reconnect } = useWebSocket();
 
   if (localSeat === null) return null;
 
@@ -57,6 +59,11 @@ export default function GameTable() {
         <div className="d-flex align-items-center gap-2">
           <TrumpIndicator trumpSuit={game.trumpSuit} />
           <PhaseIndicator phase={game.phase} />
+          <TrickHistoryDrawer
+            trickHistory={game.trickHistory}
+            localSeat={localSeat}
+            seatNames={seatNames}
+          />
         </div>
       </div>
 
@@ -155,6 +162,7 @@ export default function GameTable() {
           isMyTurn={isMyTurn}
           currentBid={game.currentBid}
           currentHighBidder={game.currentHighBidder}
+          currentPlayer={game.currentPlayer}
           seats={game.seats}
           trumpChooserName={trumpChooserName}
           onAction={sendAction}
@@ -162,6 +170,7 @@ export default function GameTable() {
       </div>
 
       {/* Overlays */}
+      <DisconnectedOverlay onReconnect={reconnect} />
       {game.roundEndData && <RoundSummaryOverlay data={game.roundEndData} />}
       {game.gameOverData && (
         <GameOverOverlay

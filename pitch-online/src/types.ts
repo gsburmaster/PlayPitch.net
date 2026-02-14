@@ -63,6 +63,16 @@ export function getCardColor(suit: number | null): string {
   return SUIT_COLORS[suit] ?? "black";
 }
 
+// Card point values (only for trump-eligible cards)
+export function getCardPoints(rank: number): string | null {
+  if (rank === 15) return "1 pt (High)";
+  if (rank === 12) return "1 pt (Jack)";
+  if (rank === 10) return "1 pt (Game)";
+  if (rank === 3) return "3 pts (Three)";
+  if (rank === 11) return "1 pt (Joker)";
+  return null;
+}
+
 // Bid value to display
 export function bidDisplay(bid: number): string {
   if (bid === 0) return "No bids";

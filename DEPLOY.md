@@ -29,7 +29,7 @@ The Docker container runs the Express/WebSocket backend. Nginx runs on the host,
 
 ## Step 1: Prepare Your Local Build Artifacts
 
-Before deploying, make sure you have a trained ONNX model. The server expects `agent_0.onnx` in the `ML-Pitch-Theory/` root directory. If you haven't trained one yet:
+Before deploying, make sure you have a trained ONNX model. The server loads `agent_0_longtraining.onnx` from the `ML-Pitch-Theory/` root directory (see `webserver/ai/AIPlayer.ts`). If you haven't trained one yet:
 
 ```bash
 cd ML-Pitch-Theory
@@ -86,11 +86,11 @@ sudo chown -R $USER:$USER /opt/pitch
 cd /opt/pitch/ML-Pitch-Theory
 ```
 
-If your `agent_0.onnx` model isn't in the repo (it probably shouldn't be -- it's large), copy it from your local machine:
+If your ONNX model isn't in the repo (it probably shouldn't be -- it's large), copy it from your local machine:
 
 ```bash
 # From your local machine:
-scp ML-Pitch-Theory/agent_0.onnx user@your-vps:/opt/pitch/ML-Pitch-Theory/
+scp ML-Pitch-Theory/agent_0_longtraining.onnx user@your-vps:/opt/pitch/ML-Pitch-Theory/
 ```
 
 ---
@@ -302,7 +302,7 @@ bun run build
 # No Nginx restart needed -- it serves files from dist/ directly
 ```
 
-If you updated the ONNX model, copy the new `agent_0.onnx` file and rebuild the container.
+If you updated the ONNX model, copy the new `agent_0_longtraining.onnx` file and rebuild the container.
 
 ---
 
@@ -318,6 +318,6 @@ If you updated the ONNX model, copy the new `agent_0.onnx` file and rebuild the 
 | Port 1337 accessible from internet | Docker bypasses UFW by default | Bind to `127.0.0.1:1337:1337` in docker-compose.yml, not `1337:1337` |
 | Frontend shows blank page | Nginx `root` path wrong, or missing `try_files` fallback | Verify `root` points to `pitch-online/dist/` and `try_files` has `/index.html` fallback |
 | OOM during frontend build | Vite + TypeScript uses ~500 MB | Add swap or build locally and scp `dist/` |
-| Container can't find `agent_0.onnx` | Model path is resolved relative to `webserver/ai/` → `../../agent_0.onnx` → `/app/agent_0.onnx` | The Dockerfile COPYs it to `/app/`. Make sure it's in the repo root (ML-Pitch-Theory/) |
+| Container can't find ONNX model | Model path is resolved relative to `webserver/ai/` → `../../agent_0_longtraining.onnx` → `/app/agent_0_longtraining.onnx` | The Dockerfile COPYs `agent_0.onnx*` to `/app/`. Make sure the model is in the repo root (ML-Pitch-Theory/) |
 | Certbot fails | DNS not pointed at VPS yet, or port 80 blocked | Ensure A record resolves and UFW allows `Nginx Full` |
 | `bun install --frozen-lockfile` fails | `bun.lock` out of date or missing | Run `bun install` locally to regenerate `bun.lock`, commit it |

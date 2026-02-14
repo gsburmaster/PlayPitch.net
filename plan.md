@@ -70,19 +70,19 @@ Production readiness.
 - [ ] Structured logging (pino or winston) replacing `console.log`
 
 ### 2.2 CI/CD Pipeline
-- [ ] GitHub Actions workflow:
+- [x] GitHub Actions workflow:
   - Run Python tests (`python -m unittest pitch_test.py`)
   - Run webserver tests (`npm test` in `webserver/`)
   - Run frontend build (`npm run build` in `pitch-online/`)
   - Run linting (`npm run lint`)
-- [ ] Auto-deploy on merge to main (target: Docker on VPS, or Fly.io/Railway)
+- [x] Auto-deploy on merge to main (VPS via SSH in `deploy.yml`)
 - [ ] Branch protection: require CI pass before merge
 
 ### 2.3 Deployment
-- [ ] Dockerfile for combined backend (serves static frontend + API + WebSocket)
-- [ ] Docker Compose for production
-- [ ] Nginx reverse proxy config with HTTPS (Let's Encrypt)
-- [ ] Domain setup and DNS
+- [x] Dockerfile for backend (multi-stage: Bun for build, Node for runtime)
+- [x] Docker Compose for production (`docker-compose.yml`)
+- [x] Nginx reverse proxy config with HTTPS (Let's Encrypt) — documented in `DEPLOY.md`
+- [x] Domain setup and DNS
 
 ---
 
@@ -113,36 +113,32 @@ Improve AI play quality.
 ## Suggested Implementation Order
 
 ```
-Phase 1.1 (Error handling)     ← Quick wins, immediate UX improvement
-Phase 1.5 (Minor game UX)     ← Small but impactful
-Phase 2.1 (Server hardening)   ← Needed before going live
-Phase 2.2 (CI/CD)              ← Automate quality gates
-Phase 1.3 (Animations)         ← Makes it feel like a real game
-Phase 1.4 (Sound)              ← Immersion
-Phase 1.2 (Mobile)             ← Expand audience
-Phase 2.3 (Deployment)         ← Go live
-Phase 3   (RL improvements)    ← Ongoing
+Phase 2.1 (Server hardening)   ← Remaining items: env config, rate limiting, logging
+Phase 1.4 (Sound)              ← Remaining: master volume in settings menu
+Phase 1.5 (Minor game UX)     ← Remaining: confirm dialog for high-stakes plays
+Phase 2.2 (CI/CD)              ← Remaining: branch protection rules
+Phase 3   (RL improvements)    ← Not started, ongoing
 ```
 
 ---
 
-## Technical Decisions to Make
+## Technical Decisions Made
 
-| Decision | Options | Notes |
-|----------|---------|-------|
-| Deployment target | VPS + Docker / Fly.io / Railway | VPS is cheapest; PaaS is easiest |
-| Sound library | Howler.js / Web Audio API | Howler.js is simpler for sound effects |
-| Animation library | CSS transitions / Framer Motion / GSAP | CSS for simple, Framer Motion for complex |
-| Toast library | react-hot-toast / sonner / custom | Sonner is lightweight and modern |
+| Decision | Chosen | Notes |
+|----------|--------|-------|
+| Deployment target | VPS + Docker + Nginx | Deployed with Docker Compose, Nginx reverse proxy, Let's Encrypt TLS |
+| Sound library | Web Audio API (`useSound` hook) | Custom hook in `hooks/useSound.ts` |
+| Animation library | CSS transitions | Custom CSS in `styles/` directory |
+| Toast library | Custom | Custom `Toast` component in `components/common/Toast.tsx` |
 
 ---
 
 ## Known Bugs & Tech Debt
 
-- [ ] `pitch_env.py` line 476: TODO — refactor bidding mask calculation
-- [ ] `pitch_test.py` line 67: Incomplete test for 2-card hand edge case
+- [ ] `pitch_env.py` line 478: TODO — refactor bidding mask calculation
+- [ ] `pitch_test.py` line 67: Incomplete test for 2-card hand edge case (`#TODO finish`)
 - [ ] CORS is wildcard (`*`) in dev — lock down for production
 - [ ] No structured logging — all `console.log`
 - [ ] Room cleanup is timer-based only; no manual admin purge
 - [ ] Frontend vitest config exists but minimal test coverage
-- [ ] Python TODO comments at top of `pitch_env.py` are stale (most items resolved)
+- [ ] Python TODO comments at top of `pitch_env.py` (lines 10-16) are stale — most items resolved but comments remain

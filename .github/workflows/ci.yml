@@ -30,4 +30,4 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-      - run: cd pitch-online && npm ci && npm run build && npm run lint
+      - run: cd pitch-online && rm -rf node_modules package-lock.json && npm install && npm run build && npm run lint

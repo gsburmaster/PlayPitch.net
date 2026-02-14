@@ -24,7 +24,8 @@ class TrainingConfig:
     gamma: float = 0.99
     lr: float = 3e-4
     lr_min: float = 1e-5
-    grad_clip: float = 10.0
+    grad_clip: float = 1.0
+    q_clip: float = 200.0  # clamp target Q-values to prevent divergence
 
     # Epsilon schedule (exponential decay)
     epsilon_start: float = 1.0
@@ -72,6 +73,10 @@ class TrainingConfig:
     # ONNX export
     onnx_output: str = "agent_0_longtraining.onnx"
     onnx_opset: int = 17
+
+    # Teammate noise: probability that the teammate seat plays randomly,
+    # making the agent robust to non-optimal partners (e.g. human players)
+    teammate_noise: float = 0.15
 
     # Reward shaping
     reward_scale: float = 0.01  # divide all rewards by 100

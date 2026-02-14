@@ -58,14 +58,20 @@ class TestPitchEnv(unittest.TestCase):
         self.env._handle_play(23) 
         self.assertEqual(self.env.playing_iterator,1)
 
-    def test_handle_play_only_2_cards(self):
+    def test_handle_play_no_valid_play_mid_trick(self):
+        """Action 23 (no valid play) mid-trick: iterator advances, trick unchanged"""
         self.env.reset()
+        self.env.trump_suit = Suit.HEARTS
         self.env.phase = Phase.PLAYING
         self.env.current_trick = [
-            Card(Suit.HEARTS,3)
+            (Card(Suit.HEARTS, 3), 0)
         ]
-        self.env._handle_play(23) #TODO finish
-        self.assertEqual(self.env.playing_iterator,1)
+        self.env.playing_iterator = 1
+        prev_player = self.env.current_player
+        self.env._handle_play(23)
+        self.assertEqual(self.env.playing_iterator, 2)
+        self.assertEqual(len(self.env.current_trick), 1)  # no card added
+        self.assertEqual(self.env.current_player, (prev_player + 1) % 4)
 
     def test_resolve_trick_no_points(self):
         self.env.reset()

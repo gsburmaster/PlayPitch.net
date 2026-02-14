@@ -301,6 +301,7 @@ class Agent:
             next_q = self.target_network(next_states_t).gather(1, next_actions.unsqueeze(1)).squeeze(1)
             next_q[dones_t] = 0.0
             target_q = rewards_t + self.config.gamma * next_q
+            target_q = target_q.clamp(-self.config.q_clip, self.config.q_clip)
 
         # Huber loss with importance sampling weights
         td_errors = current_q - target_q
@@ -578,6 +579,7 @@ def train(config: TrainingConfig):
     start_time = time.time()
     recent_rewards = deque(maxlen=1000)
     recent_losses = deque(maxlen=1000)
+    recent_q_means = deque(maxlen=1000)
 
     for episode in range(start_episode, config.num_episodes):
         # Epsilon schedule (exponential decay)
@@ -613,15 +615,32 @@ def train(config: TrainingConfig):
         done = False
         episode_reward = [0.0, 0.0]
 
+        # Pick one seat per team as the "noisy partner" for this episode
+        noisy_seat_team0 = np.random.choice([0, 2])
+        noisy_seat_team1 = np.random.choice([1, 3])
+
         while not done:
             cp = env.env.current_player
             state = flatten_observation(obs)
             team = cp % 2
 
+            # Teammate noise: partner seat occasionally plays randomly
+            noisy_seat = noisy_seat_team0 if team == 0 else noisy_seat_team1
+            use_noise = (cp == noisy_seat and
+                         np.random.rand() < config.teammate_noise)
+
             if team == 0:
-                action = agent.act(state, obs["action_mask"])
+                if use_noise:
+                    valid = np.where(obs["action_mask"] == 1)[0]
+                    action = int(np.random.choice(valid))
+                else:
+                    action = agent.act(state, obs["action_mask"])
             else:
-                action = agent_opp.act(state, obs["action_mask"])
+                if use_noise:
+                    valid = np.where(obs["action_mask"] == 1)[0]
+                    action = int(np.random.choice(valid))
+                else:
+                    action = agent_opp.act(state, obs["action_mask"])
 
             next_obs, reward, done, _, _ = env.step(action, obs)
             next_state = flatten_observation(next_obs)
@@ -638,6 +657,7 @@ def train(config: TrainingConfig):
                 metrics = agent.train_step(beta)
                 if metrics:
                     recent_losses.append(metrics["loss"])
+                    recent_q_means.append(metrics["q_mean"])
                     if writer and global_step % 100 == 0:
                         for k, v in metrics.items():
                             writer.add_scalar(f"agent/{k}", v, global_step)
@@ -667,6 +687,7 @@ def train(config: TrainingConfig):
             remaining = (config.num_episodes - episode) / max(eps_per_sec, 0.01)
             avg_reward = sum(recent_rewards) / max(len(recent_rewards), 1)
             avg_loss = sum(recent_losses) / max(len(recent_losses), 1) if recent_losses else 0
+            avg_q = sum(recent_q_means) / max(len(recent_q_means), 1) if recent_q_means else 0
 
             lr = agent.optimizer.param_groups[0]["lr"]
             print(
@@ -676,6 +697,7 @@ def train(config: TrainingConfig):
                 f"LR: {lr:.2e} | "
                 f"Avg R: {avg_reward:>7.2f} | "
                 f"Avg L: {avg_loss:.4f} | "
+                f"Avg Q: {avg_q:.2f} | "
                 f"Buf: {agent.buffer.size:,} | "
                 f"{eps_per_sec:.0f} ep/s | "
                 f"ETA: {remaining/3600:.1f}h"

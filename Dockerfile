@@ -3,7 +3,7 @@ WORKDIR /app
 
 # Install all dependencies (including devDeps for tsc)
 COPY webserver/package.json webserver/package-lock.json* ./webserver/
-RUN cd webserver && npm install
+RUN cd webserver && npm install --ignore-scripts
 
 # Copy webserver source and compile TypeScript
 COPY webserver/ ./webserver/

@@ -66,8 +66,10 @@ class PitchEnv(gym.Env):
             'hand': gym.spaces.Box(low=0, high=15, shape=(10, 2), dtype=np.int8), # possible to have up to ten cards
             'tricks': gym.spaces.Box(low=0, high=15, shape=(4, 2), dtype=np.int8), 
             'round_scores': gym.spaces.Box(low=0,high=10,shape=(2,), dtype=np.int8), # temporary score used to evaluate if you made your bid or not
-            'played_cards': gym.spaces.Box(low=0, high=15, shape=(16, 2), dtype=np.int8),
+            'played_cards': gym.spaces.Box(low=0, high=15, shape=(24, 2), dtype=np.int8),
             'scores': gym.spaces.Box(low=-32768, high=32767, shape=(2,), dtype=np.int16),
+            'round_scores': gym.spaces.Box(low=0,high=10,shape=(2,), dtype=np.int8),
+            'current_trick': gym.spaces.Box(low=0, high=15, shape=(4, 3), dtype=np.int8),
             'current_bid': gym.spaces.Discrete(9),  # 0,5-10,moon,double moon where 0 means no bid yet
             'current_high_bidder': gym.spaces.Discrete(5), #no bid or 1-4
             'dealer': gym.spaces.Discrete(4),
@@ -92,8 +94,10 @@ class PitchEnv(gym.Env):
             'hand': gym.spaces.Box(low=0, high=15, shape=(10, 2), dtype=np.int8), # possible to have up to ten cards
             'tricks': gym.spaces.Box(low=0, high=15, shape=(4, 2), dtype=np.int8), 
             'round_scores': gym.spaces.Box(low=0,high=10,shape=(2,), dtype=np.int8), # temporary score used to evaluate if you made your bid or not
-            'played_cards': gym.spaces.Box(low=0, high=15, shape=(16, 2), dtype=np.int8),
+            'played_cards': gym.spaces.Box(low=0, high=15, shape=(24, 2), dtype=np.int8),
             'scores': gym.spaces.Box(low=-32768, high=32767, shape=(2,), dtype=np.int16),
+            'round_scores': gym.spaces.Box(low=0,high=10,shape=(2,), dtype=np.int8),
+            'current_trick': gym.spaces.Box(low=0, high=15, shape=(4, 3), dtype=np.int8),
             'current_bid': gym.spaces.Discrete(9),  # 0,5-10,moon,double moon where 0 means no bid yet
             'current_high_bidder': gym.spaces.Discrete(5), #no bid or 1-4
             'dealer': gym.spaces.Discrete(4),

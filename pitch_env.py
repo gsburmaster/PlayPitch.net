@@ -269,10 +269,12 @@ class PitchEnv(gym.Env):
         elif (action != 10):
             raise Exception(f"invalid action passed to handle bid. Action: {action}")
         
-        self.current_player = (self.current_player + 1) % 4
-        if self.current_player == (self.dealer):
+        if self.current_player == self.dealer:
+            # Dealer was the last to bid — bidding round complete
             self.current_player = self.current_high_bidder
             self.phase = Phase.CHOOSESUIT  # Move to choosing suit phase
+        else:
+            self.current_player = (self.current_player + 1) % 4
 
     def _handle_choose_suit(self,action):
         if (self.current_player == self.current_high_bidder):

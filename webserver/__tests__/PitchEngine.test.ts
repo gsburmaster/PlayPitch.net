@@ -115,21 +115,27 @@ describe("PitchEngine", () => {
       expect(engine.currentHighBidder).toBe(2);
     });
 
-    it("bidding ends when reaching dealer", () => {
-      // dealer=0, so players 1,2,3 bid, then back to dealer=0
+    it("bidding ends after dealer bids", () => {
+      // dealer=0, so players 1,2,3 bid, then dealer gets a turn
       engine.step(11); // player 1 bids 5
       engine.step(ACTION_PASS); // player 2 passes
       engine.step(ACTION_PASS); // player 3 passes
-      // Now currentPlayer should be back at dealer (0), and bidding ends
-      // high bidder was player 1 with bid 5
+      // Now it's dealer's turn (player 0) — dealer can pass or outbid
+      expect(engine.phase).toBe(Phase.BIDDING);
+      expect(engine.currentPlayer).toBe(0); // dealer's turn
+      engine.step(ACTION_PASS); // dealer passes
+      // Bidding complete — high bidder was player 1
       expect(engine.phase).toBe(Phase.CHOOSESUIT);
       expect(engine.currentPlayer).toBe(1); // high bidder
     });
 
-    it("transitions to CHOOSESUIT after bidding", () => {
+    it("transitions to CHOOSESUIT after all four players bid", () => {
       engine.step(ACTION_PASS); // 1 passes
       engine.step(11);          // 2 bids 5
       engine.step(ACTION_PASS); // 3 passes
+      // Dealer (0) still needs to bid
+      expect(engine.phase).toBe(Phase.BIDDING);
+      engine.step(ACTION_PASS); // 0 (dealer) passes
       expect(engine.phase).toBe(Phase.CHOOSESUIT);
       expect(engine.currentPlayer).toBe(2);
     });
@@ -139,7 +145,15 @@ describe("PitchEngine", () => {
       engine.step(ACTION_PASS); // 1 passes
       engine.step(ACTION_PASS); // 2 passes
       engine.step(ACTION_PASS); // 3 passes
-      // Dealer (0) is now the high bidder with bid 0, transitions to CHOOSESUIT
+      // Dealer (0) must bid — cannot pass
+      expect(engine.phase).toBe(Phase.BIDDING);
+      expect(engine.currentPlayer).toBe(0);
+      const mask = engine.getActionMask();
+      expect(mask[ACTION_PASS]).toBe(0); // can't pass
+      expect(mask[11]).toBe(1); // can bid 5
+      expect(mask[17]).toBe(1); // can bid Moon
+      expect(mask[18]).toBe(0); // can't double moon
+      engine.step(11); // dealer bids 5
       expect(engine.phase).toBe(Phase.CHOOSESUIT);
       expect(engine.currentPlayer).toBe(0);
     });
@@ -173,33 +187,28 @@ describe("PitchEngine", () => {
       // advance to dealer with no bids
       engine.step(ACTION_PASS); // 1
       engine.step(ACTION_PASS); // 2
-      // Now player 3 will bid so dealer has a real scenario
-      // Actually let's test: 3 passes too, then dealer can't pass
       engine.step(ACTION_PASS); // 3 passes
-      // Now it's back to dealer... but the bidding ends when reaching dealer
-      // The bidding ends at step for player 3, so dealer is set as currentPlayer = currentHighBidder
-      // When all pass with no bids, dealer is forced to CHOOSESUIT directly
+      // Now it's dealer's turn with no bids
+      expect(engine.currentPlayer).toBe(0);
+      expect(engine.phase).toBe(Phase.BIDDING);
+      const mask = engine.getActionMask();
+      expect(mask[ACTION_PASS]).toBe(0); // dealer can't pass
+      expect(mask[11]).toBe(1); // can bid 5
     });
 
     it("dealer cannot pass when currentBid is 0", () => {
-      // Set up: make dealer=1, currentPlayer=1 (dealer's turn), currentBid=0
       const e = new PitchEngine();
-      e.reset(1);
+      e.reset(1); // dealer=1
       // currentPlayer = 2
       e.step(ACTION_PASS); // 2 passes
       e.step(ACTION_PASS); // 3 passes
       e.step(ACTION_PASS); // 0 passes
-      // Now reaches dealer (1) — bidding ends, high bidder = dealer with bid 0
-      // Check that before reaching dealer, when currentBid=0, mask[PASS]=0 for dealer
-      // Actually the bidding auto-ends. Let's verify directly with a fresh engine
-      const e2 = new PitchEngine();
-      e2.reset(0); // dealer=0
-      // Manually set currentPlayer to dealer with currentBid=0
-      e2.currentPlayer = 0;
-      e2.currentBid = 0;
-      e2.phase = Phase.BIDDING;
-      const mask = e2.getActionMask();
+      // Now dealer (1) must bid
+      expect(e.currentPlayer).toBe(1);
+      expect(e.phase).toBe(Phase.BIDDING);
+      const mask = e.getActionMask();
       expect(mask[ACTION_PASS]).toBe(0); // dealer can't pass with no bids
+      expect(mask[11]).toBe(1); // can bid 5
     });
 
     it("dealer can double moon when current bid is 8", () => {
@@ -244,6 +253,7 @@ describe("PitchEngine", () => {
       e.step(11);          // player 1 bids 5
       e.step(ACTION_PASS); // player 2 passes
       e.step(ACTION_PASS); // player 3 passes
+      e.step(ACTION_PASS); // dealer (0) passes
     }
 
     it("suit selection sets trumpSuit", () => {
@@ -365,6 +375,7 @@ describe("PitchEngine", () => {
       engine.step(11);
       engine.step(ACTION_PASS);
       engine.step(ACTION_PASS);
+      engine.step(ACTION_PASS); // dealer passes
       engine.step(19 + Suit.SPADES);
       for (let p = 0; p < 4; p++) {
         expect(engine.hands[p].length).toBeLessThanOrEqual(6);
@@ -403,9 +414,10 @@ describe("PitchEngine", () => {
 
   describe("playing", () => {
     function setupPlaying(e: PitchEngine, trump: Suit = Suit.HEARTS): void {
-      e.step(11);          // bid 5
-      e.step(ACTION_PASS);
-      e.step(ACTION_PASS);
+      e.step(11);          // player 1 bids 5
+      e.step(ACTION_PASS); // player 2 passes
+      e.step(ACTION_PASS); // player 3 passes
+      e.step(ACTION_PASS); // dealer (0) passes
       e.step(19 + trump);  // choose trump
     }
 

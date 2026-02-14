@@ -242,12 +242,12 @@ export class PitchEngine {
       });
     }
 
-    this.currentPlayer = (this.currentPlayer + 1) % 4;
-
-    if (this.currentPlayer === this.dealer) {
-      // Bidding round complete
+    if (actingSeat === this.dealer) {
+      // Dealer was the last to bid — bidding round complete
       this.currentPlayer = this.currentHighBidder;
       this.phase = Phase.CHOOSESUIT;
+    } else {
+      this.currentPlayer = (this.currentPlayer + 1) % 4;
     }
 
     return events;

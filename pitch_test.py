@@ -569,11 +569,15 @@ class TestPitchEnv(unittest.TestCase):
         dealer = self.env.dealer
         first_bidder = (dealer + 1) % 4
 
-        # First 3 players pass, each pass advances current_player
+        # First player bids, next 2 pass, then dealer passes
         self.env._handle_bid(11)  # player bids 5
         self.env._handle_bid(10)  # next player passes
         self.env._handle_bid(10)  # next player passes
-        # Now we've reached the dealer, bidding should end
+        # Now it's the dealer's turn
+        self.assertEqual(self.env.phase, Phase.BIDDING)
+        self.assertEqual(self.env.current_player, dealer)
+        self.env._handle_bid(10)  # dealer passes
+        # Bidding complete
         self.assertEqual(self.env.phase, Phase.CHOOSESUIT)
         self.assertEqual(self.env.current_player, first_bidder)
         self.assertEqual(self.env.current_high_bidder, first_bidder)

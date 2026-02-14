@@ -94,6 +94,38 @@ class TestPitchEnv(unittest.TestCase):
         self.assertEqual(len(self.env.tricks), 1)
         self.assertEqual(self.env.round_scores[1], 1)  # 0 points 
 
+    def test_resolve_trick_two_scores_to_player_who_played_it(self):
+        self.env.reset()
+        self.env.trump_suit = Suit.HEARTS
+        # Player 0 (team 0) plays the 2, player 1 (team 1) plays ace and wins
+        self.env.current_trick = [
+            (Card(Suit.HEARTS, 2), 0),
+            (Card(Suit.HEARTS, 15), 1),
+            (Card(Suit.HEARTS, 4), 2),
+            (Card(Suit.HEARTS, 6), 3)
+        ]
+        self.env._resolve_trick()
+        self.assertEqual(self.env.trick_winner, 1)  # Ace wins
+        # 2's point goes to team 0 (who played it), ace's point goes to team 1 (who won)
+        self.assertEqual(self.env.round_scores[0], 1)  # team 0 gets 2's point
+        self.assertEqual(self.env.round_scores[1], 1)  # team 1 gets ace's point
+
+    def test_resolve_trick_two_played_by_winner_team(self):
+        self.env.reset()
+        self.env.trump_suit = Suit.HEARTS
+        # Player 1 (team 1) plays the 2, player 3 (team 1) plays ace and wins
+        self.env.current_trick = [
+            (Card(Suit.HEARTS, 4), 0),
+            (Card(Suit.HEARTS, 2), 1),
+            (Card(Suit.HEARTS, 6), 2),
+            (Card(Suit.HEARTS, 15), 3)
+        ]
+        self.env._resolve_trick()
+        self.assertEqual(self.env.trick_winner, 3)  # Ace wins
+        # Both points go to team 1 (played the 2 AND won the trick)
+        self.assertEqual(self.env.round_scores[0], 0)
+        self.assertEqual(self.env.round_scores[1], 2)
+
     def test_action_mask_hand(self):
         self.env.reset()
         self.env.trump_suit = Suit.DIAMONDS

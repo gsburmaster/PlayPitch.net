@@ -459,9 +459,19 @@ export class PitchEngine {
     this.trickWinner = winnerEntry.seatIndex;
     this.tricks.push([...this.currentTrick]);
 
-    const pointsWon = this.currentTrick.reduce((sum, entry) => sum + cardPoints(entry.card), 0);
     const winningTeam = this.trickWinner % 2;
+    let pointsWon = 0;
+    for (const entry of this.currentTrick) {
+      const pts = cardPoints(entry.card);
+      if (pts > 0 && entry.card.rank === 2) {
+        // 2 of trump scores for the team that played it
+        this.roundScores[entry.seatIndex % 2] += pts;
+      } else {
+        pointsWon += pts;
+      }
+    }
     this.roundScores[winningTeam] += pointsWon;
+    pointsWon += this.currentTrick.reduce((sum, e) => sum + (e.card.rank === 2 ? cardPoints(e.card) : 0), 0);
 
     const result: TrickResult = {
       trick: this.currentTrick.map((e) => ({ card: e.card, seatIndex: e.seatIndex })),

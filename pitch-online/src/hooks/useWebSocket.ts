@@ -101,6 +101,9 @@ export function useWebSocket() {
 
       case "game:start":
         appDispatch({ type: "GAME_STARTED" });
+        if (appState.seatIndex !== null) {
+          gameDispatch({ type: "SET_LOCAL_SEAT", seatIndex: appState.seatIndex });
+        }
         gameDispatch({
           type: "GAME_START",
           hand: msg.hand as never[],

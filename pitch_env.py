@@ -380,11 +380,17 @@ class PitchEnv(gym.Env):
         self.tricks.append(self.current_trick)
         self.current_trick = []
         self.current_player = self.trick_winner
-        trick_points = sum(self._card_points(tuple[0]) for tuple in self.tricks[-1])
         winning_team = self.trick_winner % 2
-        self.round_scores[winning_team] += trick_points
         self.last_trick_points = [0, 0]
-        self.last_trick_points[winning_team] = trick_points
+        for card, player in self.tricks[-1]:
+            pts = self._card_points(card)
+            if pts > 0 and card.rank == 2:
+                # 2 of trump scores for the team that played it
+                self.round_scores[player % 2] += pts
+                self.last_trick_points[player % 2] += pts
+            else:
+                self.round_scores[winning_team] += pts
+                self.last_trick_points[winning_team] += pts
 
     def _card_points(self, card):
         if card.rank in [15, 12, 10]:  # Ace, Jack, 10

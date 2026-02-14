@@ -1,0 +1,8 @@
+.splash-bg {
+  width: 100vw;
+  height: 100vh;
+  background: radial-gradient(ellipse at center, #1a5c2a 0%, #0d3318 70%, #071a0d 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}

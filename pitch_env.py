@@ -55,9 +55,10 @@ class CardEncoder(json.JSONEncoder):
         
 
 
-class PitchEnv(BaseModel,gym.Env):
-    def __init__(self):
+class PitchEnv(gym.Env):
+    def __init__(self, win_threshold=54):
         super(PitchEnv, self).__init__()
+        self.win_threshold = win_threshold
         self.played_cards = []
         self.num_actions = 24  # 10 for cards in hand, 9 for possible bids (pass, 5-10, shoot the moon, double shoot the moon), 4 for choosing suit, one for no valid play
         self.action_space = gym.spaces.Discrete(self.num_actions)
@@ -66,7 +67,7 @@ class PitchEnv(BaseModel,gym.Env):
             'tricks': gym.spaces.Box(low=0, high=15, shape=(4, 2), dtype=np.int8), 
             'round_scores': gym.spaces.Box(low=0,high=10,shape=(2,), dtype=np.int8), # temporary score used to evaluate if you made your bid or not
             'played_cards': gym.spaces.Box(low=0, high=15, shape=(16, 2), dtype=np.int8),
-            'scores': gym.spaces.Box(low=0, high=54, shape=(2,), dtype=np.int8),
+            'scores': gym.spaces.Box(low=-32768, high=32767, shape=(2,), dtype=np.int16),
             'current_bid': gym.spaces.Discrete(9),  # 0,5-10,moon,double moon where 0 means no bid yet
             'current_high_bidder': gym.spaces.Discrete(5), #no bid or 1-4
             'dealer': gym.spaces.Discrete(4),
@@ -79,69 +80,74 @@ class PitchEnv(BaseModel,gym.Env):
         })
         self.reset()
 
-    # def __init__(self, deck: Card, hands, round_scores,
-    #              scores, current_bid, current_high_bidder, dealer, current_player,
-    #              trump_suit,phase,tricks,played_cards,current_trick,trick_winner,
-    #              player_cards_taken, number_of_rounds_played, playing_iterator):
-    #     super(PitchEnv, self).__init__()
-    #     self.played_cards = []
-    #     self.num_actions = 24  # 10 for cards in hand, 9 for possible bids (pass, 5-10, shoot the moon, double shoot the moon), 4 for choosing suit, one for no valid play
-    #     self.action_space = gym.spaces.Discrete(self.num_actions)
-    #     self.observation_space = gym.spaces.Dict({
-    #         'hand': gym.spaces.Box(low=0, high=15, shape=(10, 2), dtype=np.int8), # possible to have up to ten cards
-    #         'tricks': gym.spaces.Box(low=0, high=15, shape=(4, 2), dtype=np.int8), 
-    #         'round_scores': gym.spaces.Box(low=0,high=10,shape=(2,), dtype=np.int8), # temporary score used to evaluate if you made your bid or not
-    #         'played_cards': gym.spaces.Box(low=0, high=15, shape=(16, 2), dtype=np.int8),
-    #         'scores': gym.spaces.Box(low=0, high=54, shape=(2,), dtype=np.int8),
-    #         'current_bid': gym.spaces.Discrete(9),  # 0,5-10,moon,double moon where 0 means no bid yet
-    #         'current_high_bidder': gym.spaces.Discrete(5), #no bid or 1-4
-    #         'dealer': gym.spaces.Discrete(4),
-    #         'number_of_rounds_played': gym.spaces.Box(low=0,high=2**63 - 2, dtype=np.uint64), # how many rounds has the game gone
-    #         'current_player': gym.spaces.Discrete(4),
-    #         'player_cards_taken': gym.spaces.Box(low=-1,high=10, shape=(4,),dtype=np.int8),
-    #         'trump_suit': gym.spaces.Discrete(5),  # 0-3 for suits, 4 for no trump
-    #         'phase': gym.spaces.Discrete(3),  # 0: bidding, 1: choosing suit, 2: playing
-    #         'action_mask': gym.spaces.Box(low=0, high=1, shape=(self.num_actions,), dtype=np.int8)
-    #     })
-    #     try:
-    #         self.deck = deck
-    #         self.hands = hands
-    #         self.round_scores = round_scores
-    #         self.scores = scores
-    #         self.current_bid = current_bid
-    #         self.current_high_bidder = current_high_bidder
-    #         self.dealer = dealer
-    #         self.current_player = current_player
-    #         self.trump_suit = trump_suit
-    #         self.phase = phase
-    #         self.tricks = tricks
-    #         self.played_cards = played_cards
-    #         self.current_trick = current_trick
-    #     except:
-    #         raise Exception("Unable to load game state from inputted arguments")
-    #     return
+    def loadGameState(self, deck: Card, hands, round_scores,
+                 scores, current_bid, current_high_bidder, dealer, current_player,
+                 trump_suit,phase,tricks,played_cards,current_trick,trick_winner,
+                 player_cards_taken, number_of_rounds_played, playing_iterator):
+        super(PitchEnv, self).__init__()
+        self.played_cards = []
+        self.num_actions = 24  # 10 for cards in hand, 9 for possible bids (pass, 5-10, shoot the moon, double shoot the moon), 4 for choosing suit, one for no valid play
+        self.action_space = gym.spaces.Discrete(self.num_actions)
+        self.observation_space = gym.spaces.Dict({
+            'hand': gym.spaces.Box(low=0, high=15, shape=(10, 2), dtype=np.int8), # possible to have up to ten cards
+            'tricks': gym.spaces.Box(low=0, high=15, shape=(4, 2), dtype=np.int8), 
+            'round_scores': gym.spaces.Box(low=0,high=10,shape=(2,), dtype=np.int8), # temporary score used to evaluate if you made your bid or not
+            'played_cards': gym.spaces.Box(low=0, high=15, shape=(16, 2), dtype=np.int8),
+            'scores': gym.spaces.Box(low=-32768, high=32767, shape=(2,), dtype=np.int16),
+            'current_bid': gym.spaces.Discrete(9),  # 0,5-10,moon,double moon where 0 means no bid yet
+            'current_high_bidder': gym.spaces.Discrete(5), #no bid or 1-4
+            'dealer': gym.spaces.Discrete(4),
+            'number_of_rounds_played': gym.spaces.Box(low=0,high=2**63 - 2, dtype=np.uint64), # how many rounds has the game gone
+            'current_player': gym.spaces.Discrete(4),
+            'player_cards_taken': gym.spaces.Box(low=-1,high=10, shape=(4,),dtype=np.int8),
+            'trump_suit': gym.spaces.Discrete(5),  # 0-3 for suits, 4 for no trump
+            'phase': gym.spaces.Discrete(3),  # 0: bidding, 1: choosing suit, 2: playing
+            'action_mask': gym.spaces.Box(low=0, high=1, shape=(self.num_actions,), dtype=np.int8)
+        })
+        try:
+            self.deck = deck
+            self.hands = hands
+            self.round_scores = round_scores
+            self.scores = scores
+            self.current_bid = current_bid
+            self.current_high_bidder = current_high_bidder
+            self.dealer = dealer
+            self.current_player = current_player
+            self.trump_suit = trump_suit
+            self.phase = phase
+            self.tricks = tricks
+            self.played_cards = played_cards
+            self.current_trick = current_trick
+            self.trick_winner = trick_winner
+            self.player_cards_taken = player_cards_taken
+            self.number_of_rounds_played = number_of_rounds_played
+            self.playing_iterator = playing_iterator
+        except:
+            raise Exception("Unable to load game state from inputted arguments")
+        return
     
     # write a constructor that takes in each of the arguments then use **var in json decoder def __init__(self,)
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         self.deck = self._create_deck()
-        self.hands = [[] for _ in range(4)]
-        self.round_scores = [0,0]
+        self.hands: list[list[Card]] = [[] for _ in range(4)]
+        self.round_scores: list[int] = [0,0]
         self.scores = [0, 0]
-        self.current_bid = 0
-        self.current_high_bidder = 0
-        self.dealer = self.np_random.integers(0,4,endpoint=False)
-        self.current_player = (self.dealer + 1) % 4
-        self.trump_suit = None
-        self.phase = Phase.BIDDING
-        self.tricks = []
-        self.played_cards = []
-        self.current_trick = []
+        self.current_bid: int = 0
+        self.current_high_bidder: int = 0
+        self.dealer: int = self.np_random.integers(0,4,endpoint=False)
+        self.current_player: int = (self.dealer + 1) % 4
+        self.trump_suit: Suit | None = None
+        self.phase: Phase = Phase.BIDDING
+        self.tricks: list[list[tuple[Card,int]]] = []
+        self.played_cards: list[Card] = []
+        self.current_trick: list[tuple[Card,int]] = []
         self.trick_winner = None
         self.player_cards_taken = [-1,-1,-1,-1]
         self.number_of_rounds_played = 0
         self.playing_iterator = 0
+        self.last_trick_points = [0, 0]
         self._deal_cards()
         observation = self._get_observation()
         info = {}
@@ -167,8 +173,11 @@ class PitchEnv(BaseModel,gym.Env):
     
     def saveStateToFileAsJson(self,fileName: str):
         tmpExtension: int = 0 
-        while (os.path.exists('./' + fileName + str(tmpExtension))):
+        filepath = './' + fileName + str(tmpExtension) + '.json'
+        while (os.path.exists(filepath)):
             tmpExtension += 1
+            filepath= './' + fileName + str(tmpExtension) + '.json'
+
         outPutState: dict = {'deck': self.deck,
                        'hands': self.hands,
                        'round_scores': self.round_scores,
@@ -192,7 +201,28 @@ class PitchEnv(BaseModel,gym.Env):
         f.close()
 
     def loadStateFromJsonString(self,jsonStr: str):
-        self.model_validate_json(jsonStr)
+        parsedObj = json.loads(jsonStr)
+        
+        lambdaToCard = lambda card: Card(card['suit'],card['rank'])
+
+        deck = map(lambdaToCard,parsedObj['deck'])
+        
+        hands = map(lambda arr: map(lambdaToCard,arr),parsedObj['hands'])
+
+        roundScores = parsedObj['round_scores']
+
+        scores = parsedObj['scores']
+
+        tricks = map(lambda listOfListOfTuples: map(lambda listOfTuples: map(lambda tuple: (lambdaToCard(tuple[0]),tuple[1]),listOfTuples), listOfListOfTuples),parsedObj['tricks'])
+
+        playedCards = map(lambdaToCard,parsedObj['played_cards'])
+
+        currentTrick = map(lambda listOfTuples: map(lambda tuple: (lambdaToCard(tuple[0]),tuple[1]),listOfTuples),parsedObj['current_trick'])
+
+        self.loadGameState(deck,hands,roundScores,scores,
+                            parsedObj['current_bid'],parsedObj['current_high_bidder'],parsedObj['dealer'],parsedObj['current_player'],parsedObj['trump_suit']
+                            ,parsedObj['phase'],tricks,playedCards,currentTrick,parsedObj['trick_winner'],parsedObj['player_cards_taken'],parsedObj['number_of_rounds_played'],parsedObj['playing_iterator'])
+
         pass
         
     def step(self, action, current_obs):
@@ -201,6 +231,10 @@ class PitchEnv(BaseModel,gym.Env):
             valid_actions = np.where(observation['action_mask'] == 1)[0]
             action = self.np_random.choice(valid_actions)
 
+        team = self.current_player % 2
+        scores_before = list(self.scores)
+        self.last_trick_points = [0, 0]
+
         if self.phase == Phase.BIDDING:  # Bidding phase
             self._handle_bid(action)
         elif self.phase == Phase.CHOOSESUIT:
@@ -208,10 +242,9 @@ class PitchEnv(BaseModel,gym.Env):
         elif self.phase == Phase.PLAYING:  # Playing phase
             self._handle_play(action)
 
-
         terminated = self._check_game_end()
         truncated = False
-        reward = self._calculate_reward()
+        reward = self._calculate_reward(team, scores_before)
         observation = self._get_observation()
         info = {}
         if (len(observation) != len(current_obs)):
@@ -236,16 +269,19 @@ class PitchEnv(BaseModel,gym.Env):
         elif (action != 10):
             raise Exception(f"invalid action passed to handle bid. Action: {action}")
         
-        self.current_player = (self.current_player + 1) % 4
-        if self.current_player == (self.dealer):
+        if self.current_player == self.dealer:
+            # Dealer was the last to bid — bidding round complete
             self.current_player = self.current_high_bidder
             self.phase = Phase.CHOOSESUIT  # Move to choosing suit phase
+        else:
+            self.current_player = (self.current_player + 1) % 4
 
     def _handle_choose_suit(self,action):
         if (self.current_player == self.current_high_bidder):
             if (not (19 <= action < 23)):
                 raise Exception(f"invalid bid action from winning bidder. action: {action}")
-            self.trump_suit = action-19
+            self.trump_suit = Suit(action-19)
+            self._discard_and_fill()
             self.phase = Phase.PLAYING
             return
         self.current_player = (self.current_player + 1) % 4
@@ -254,13 +290,12 @@ class PitchEnv(BaseModel,gym.Env):
         for i in range(0,4):
             for j in range(0,len(self.hands[i])):
                 if (self._is_valid_play(self.hands[i][j])):
-                    print('Thought that there were no more valid plays anywhere!')
                     return False
-        return True        
+        return True
         
 
     def _handle_play(self, action):
-        if (action < 22 ):
+        if (action <= 9):
             card = self.hands[self.current_player][action]
             self.current_trick.append((card,self.current_player))
             self.hands[self.current_player].remove(card)
@@ -279,42 +314,35 @@ class PitchEnv(BaseModel,gym.Env):
 
 
     def _discard_and_fill(self):
-        dealerOffset = self.dealer
+        bidder = self.current_high_bidder
+        partner = (bidder + 2) % 4
+
+        # Phase 1: All players discard non-playable cards (keep trump, jokers, off-jack)
         for player in range(4):
-            self.hands[(player + dealerOffset) % 4] = [card for card in self.hands[(player + dealerOffset) % 4]
-                                  if card.suit == self.trump_suit or card.rank == 11]
-            while len(self.hands[(player + dealerOffset) % 4]) < 6 and len(self.deck) > 0:
-                self.hands[(player + dealerOffset) % 4].append(self.deck.pop())
-                self.player_cards_taken[(player + dealerOffset) % 4] += 1
-            #bidder team fill phase
-            sortLambda = lambda x: 0 if self._is_valid_play(x) else 1 # put the invalid cards at the back of the hand
-            bidderInvalidCount = len(filter(lambda card: not self._is_valid_play(card),self.hands[self.current_high_bidder]))
-            bidderPartnerInvalidCount = len(filter(lambda card: not self._is_valid_play(card),self.hands[(self.current_high_bidder + 2) % 4]))
-            self.hands[self.current_high_bidder].sort(key=sortLambda)
-            self.hands[(self.current_high_bidder + 2) % 4].sort(key=sortLambda)
-            while (bidderInvalidCount > 0 and self.deck.count() > 0):
-                if (bidderInvalidCount == self.deck.count()):
-                    for x in range(0,bidderInvalidCount):
-                        self.hands[self.current_high_bidder].insert(0,self.deck.pop())
-                else:
-                    possibleCard = self.deck.pop()
-                    if (self._is_valid_play(possibleCard)):
-                        self.hands[self.current_high_bidder].pop()
-                        self.hands[self.current_high_bidder].insert(0,possibleCard)
-                        bidderInvalidCount = bidderInvalidCount - 1
-            if (self.deck.count() == 0):
-                return
-            else:
-                cardsToAddToPartner = filter(lambda card: self._is_valid_play(card),self.deck)
-                if (len(cardsToAddToPartner) > bidderPartnerInvalidCount):
-                    self.hands[(self.current_high_bidder + 2) % 4] = filter(lambda card: self.hands[(self.current_high_bidder + 2) % 4])
-                    self.hands[(self.current_high_bidder + 2) % 4] = self.hands[(self.current_high_bidder + 2) % 4] + cardsToAddToPartner
-                    self.player_cards_taken[(self.current_high_bidder + 2) % 4] = len(cardsToAddToPartner)
-                else:
-                    for x in range(len(cardsToAddToPartner)):
-                        self.hands[(self.current_high_bidder + 2) % 4].pop()
-                        self.hands[(self.current_high_bidder + 2) % 4].insert(0,cardsToAddToPartner.pop())
-                    self.player_cards_taken[(self.current_high_bidder + 2) % 4] = len(cardsToAddToPartner + 1) #TODO check on this
+            p = (player + self.dealer) % 4
+            self.hands[p] = [card for card in self.hands[p] if self._is_valid_play(card)]
+
+        # Phase 2: All players fill to 6 from deck in dealer order
+        for player in range(4):
+            p = (player + self.dealer) % 4
+            while len(self.hands[p]) < 6 and len(self.deck) > 0:
+                self.hands[p].append(self.deck.pop())
+                self.player_cards_taken[p] += 1
+
+        # Phase 3: Bidder swaps invalid drawn cards for playable ones from deck,
+        # then partner gets the same treatment with whatever is left
+        for p in [bidder, partner]:
+            invalid_cards = [c for c in self.hands[p] if not self._is_valid_play(c)]
+            for bad_card in invalid_cards:
+                replacement = None
+                for card in self.deck:
+                    if self._is_valid_play(card):
+                        replacement = card
+                        break
+                if replacement is not None:
+                    self.hands[p].remove(bad_card)
+                    self.hands[p].append(replacement)
+                    self.deck.remove(replacement)
 
     def _end_round(self):
         #add the scores up
@@ -335,7 +363,6 @@ class PitchEnv(BaseModel,gym.Env):
         self.hands = [[] for _ in range(4)]
         self.round_scores = [0,0]
         self.current_bid = 0
-        self.current_high_bidder = 0
         self.current_player = (self.dealer + 1) % 4
         self.trump_suit = None
         self.phase = Phase.BIDDING
@@ -347,7 +374,6 @@ class PitchEnv(BaseModel,gym.Env):
         self.number_of_rounds_played += 1
         self.playing_iterator = 0
         self._deal_cards()
-        print('\nscores: Team 1: ' + str(self.scores[0]) + ' Team 2: ' + str(self.scores[1]))
         
 
     def _resolve_trick(self):
@@ -356,8 +382,17 @@ class PitchEnv(BaseModel,gym.Env):
         self.tricks.append(self.current_trick)
         self.current_trick = []
         self.current_player = self.trick_winner
-        trick_points = sum(self._card_points(tuple[0]) for tuple in self.tricks[-1])
-        self.round_scores[self.trick_winner % 2] += trick_points
+        winning_team = self.trick_winner % 2
+        self.last_trick_points = [0, 0]
+        for card, player in self.tricks[-1]:
+            pts = self._card_points(card)
+            if pts > 0 and card.rank == 2:
+                # 2 of trump scores for the team that played it
+                self.round_scores[player % 2] += pts
+                self.last_trick_points[player % 2] += pts
+            else:
+                self.round_scores[winning_team] += pts
+                self.last_trick_points[winning_team] += pts
 
     def _card_points(self, card):
         if card.rank in [15, 12, 10]:  # Ace, Jack, 10
@@ -371,31 +406,63 @@ class PitchEnv(BaseModel,gym.Env):
         return 0
 
     def _check_game_end(self):
-        return abs(self.scores[0] - self.scores[1]) > 53 or (self.scores[0] > 53 and self.current_high_bidder % 2 == 0 ) or (self.scores[1] > 53 and self.current_high_bidder % 2 == 1 )
+        t = self.win_threshold
+        if self.number_of_rounds_played >= 50:
+            return True
+        return abs(self.scores[0] - self.scores[1]) >= t or (self.scores[0] >= t and self.current_high_bidder % 2 == 0 ) or (self.scores[1] >= t and self.current_high_bidder % 2 == 1 )
 
     def _check_current_player_win(self):
+        t = self.win_threshold
         if (self.current_player % 2 == 0):
-            return self.scores[0] - self.scores[1] > 53 or (self.scores[0] > 53 and self.current_high_bidder % 2 == 0)
-        return self.scores[1] - self.scores[0] > 53 or (self.scores[1] > 53 and self.current_high_bidder % 2 == 1)
+            return self.scores[0] - self.scores[1] >= t or (self.scores[0] >= t and self.current_high_bidder % 2 == 0)
+        return self.scores[1] - self.scores[0] >= t or (self.scores[1] >= t and self.current_high_bidder % 2 == 1)
 
-    def _calculate_reward(self):
-        return (self.scores[self.current_player % 2] - self.scores[(self.current_player + 1) % 2]) - self.number_of_rounds_played*.4 + (2000 if self._check_current_player_win() else 0)  
+    def _calculate_reward(self, team, scores_before):
+        other_team = 1 - team
+        # Trick-level: points my team won minus points other team won
+        reward = self.last_trick_points[team] - self.last_trick_points[other_team]
+        # Round-end: actual score delta captures set penalties, moon bonuses, etc.
+        # e.g. bid 7 and only took 4 → scores drop by 7, reward reflects that
+        score_delta = (self.scores[team] - scores_before[team]) - (self.scores[other_team] - scores_before[other_team])
+        reward += score_delta
+        # Game-end bonus
+        if self._check_game_end():
+            reward += 100 if self._check_current_player_win() else -100
+        return reward
 
     def _get_observation(self):
+        # Pad hand to fixed size (10, 2)
+        hand_data = [(card.suit.value if card.suit else 4, card.rank) for card in self.hands[self.current_player]]
+        hand_padded = np.zeros((10, 2), dtype=np.int8)
+        if hand_data:
+            hand_padded[:len(hand_data)] = np.array(hand_data, dtype=np.int8)
+
+        # Pad played_cards to fixed size (24, 2)
+        played_data = [(card.suit.value if card.suit else 4, card.rank) for card in self.played_cards]
+        played_padded = np.zeros((24, 2), dtype=np.int8)
+        if played_data:
+            played_padded[:len(played_data)] = np.array(played_data, dtype=np.int8)
+
+        # Pad current_trick to fixed size (4, 3)
+        trick_data = [(t[0].suit.value if t[0].suit else 4, t[0].rank, t[1]) for t in self.current_trick]
+        trick_padded = np.zeros((4, 3), dtype=np.int8)
+        if trick_data:
+            trick_padded[:len(trick_data)] = np.array(trick_data, dtype=np.int8)
+
         return {
-            'hand': np.array([(card.suit.value if card.suit else 4, card.rank) for card in self.hands[self.current_player]]),
-            'played_cards': np.array([(card.suit.value if card.suit else 4, card.rank) for card in self.played_cards]),
-            'scores': np.array(self.scores),
-            'round_scores': np.array(self.round_scores),
-            'current_trick': np.array([(tuple[0].suit.value if tuple[0].suit else 4, tuple[0].rank, tuple[1]) for tuple in self.current_trick]),
+            'hand': hand_padded,
+            'played_cards': played_padded,
+            'scores': np.array(self.scores, dtype=np.int16),
+            'round_scores': np.array(self.round_scores, dtype=np.int16),
+            'current_trick': trick_padded,
             'current_bid': self.current_bid,
             'current_high_bidder': self.current_high_bidder,
             'dealer': self.dealer,
             'current_player': self.current_player,
-            'trump_suit': self.trump_suit if self.trump_suit else 4,
-            'phase': self.phase,
+            'trump_suit': self.trump_suit.value if self.trump_suit is not None else 4,
+            'phase': self.phase.value if isinstance(self.phase, Phase) else self.phase,
             'number_of_rounds_played': self.number_of_rounds_played,
-            'player_cards_taken': self.player_cards_taken,
+            'player_cards_taken': np.array(self.player_cards_taken, dtype=np.int8),
             'action_mask': self._get_action_mask()
         }
 

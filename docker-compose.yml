@@ -1,0 +1,9 @@
+services:
+  pitch-server:
+    build: .
+    container_name: pitch-server
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:1337:1337"
+    environment:
+      - NODE_ENV=production

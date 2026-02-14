@@ -1,4 +1,19 @@
 pitchenv/
 __pycache__/
 .vscode/
+
+# Node
 webserver/node_modules/
+pitch-online/node_modules/
+
+# Build outputs
+webserver/dist/
+
+# Training artifacts
+*.onnx
+!agent_0_longtraining.onnx
+*.pt
+!checkpoints/*_final.pt
+
+# Debug/scratch files
+jsonErr*.json

@@ -232,5 +232,97 @@ class TestEvaluateParallel(unittest.TestCase):
         self.assertGreater(result["avg_length"], 0)
 
 
+class TestPitchEnvWrapper(unittest.TestCase):
+    """Tests for PitchEnvWrapper reward shaping."""
+
+    def _make_wrapper(self):
+        env = PitchEnv(win_threshold=5)
+        return PitchEnvWrapper(env, reward_scale=0.01, bid_bonus=0.5)
+
+    def test_safe_bid_bonus(self):
+        """Bid <= 7 with >= 4 cards should get a bonus."""
+        wrapper = self._make_wrapper()
+        obs, _ = wrapper.reset(seed=42)
+
+        # Advance to a player who can bid
+        # The first player (not dealer) can bid
+        if wrapper.env.phase.value == 0:
+            base_obs = obs
+            # Bid 5 (action 11) — safe bid
+            obs, reward, done, _, _ = wrapper.step(11, base_obs)
+            # Reward should include the bid bonus (0.5 * 0.01 = 0.005)
+            # Base reward is 0 for a bid action, so reward should be +0.005
+            self.assertAlmostEqual(reward, 0.005, places=4,
+                                   msg="Safe bid should get +0.005 bonus")
+
+    def test_risky_bid_penalty(self):
+        """Bid >= 10 should get a penalty."""
+        wrapper = self._make_wrapper()
+        obs, _ = wrapper.reset(seed=42)
+
+        if wrapper.env.phase.value == 0:
+            # Bid 10 (action 16) — risky
+            obs, reward, done, _, _ = wrapper.step(16, obs)
+            self.assertAlmostEqual(reward, -0.005, places=4,
+                                   msg="Risky bid should get -0.005 penalty")
+
+    def test_pass_no_bonus(self):
+        """Passing should not get any bid bonus."""
+        wrapper = self._make_wrapper()
+        obs, _ = wrapper.reset(seed=42)
+
+        if wrapper.env.phase.value == 0:
+            obs, reward, done, _, _ = wrapper.step(10, obs)  # pass
+            self.assertAlmostEqual(reward, 0.0, places=4,
+                                   msg="Pass should have 0 reward")
+
+
+class TestOpponentPool(unittest.TestCase):
+    """Tests for OpponentPool."""
+
+    def test_empty_pool_returns_none(self):
+        from train import OpponentPool
+        pool = OpponentPool(max_size=5)
+        self.assertIsNone(pool.sample_opponent())
+
+    def test_add_and_sample(self):
+        from train import OpponentPool
+        pool = OpponentPool(max_size=5)
+        weights = {"layer1": torch.tensor([1.0, 2.0])}
+        pool.add_snapshot(weights)
+        sampled = pool.sample_opponent()
+        self.assertIsNotNone(sampled)
+        self.assertIn("weights", sampled)
+        self.assertIn("elo", sampled)
+
+    def test_fifo_eviction(self):
+        """Pool should evict oldest when over max_size."""
+        from train import OpponentPool
+        pool = OpponentPool(max_size=3)
+        for i in range(5):
+            pool.add_snapshot({"id": i})
+        self.assertEqual(len(pool.pool), 3)
+        # Oldest entries (0, 1) should be gone
+        ids = [e["weights"]["id"] for e in pool.pool]
+        self.assertEqual(ids, [2, 3, 4])
+
+    def test_add_snapshot_deep_copies(self):
+        """Modifying original weights should not affect pool."""
+        from train import OpponentPool
+        pool = OpponentPool(max_size=5)
+        weights = {"param": torch.tensor([1.0])}
+        pool.add_snapshot(weights)
+        weights["param"][0] = 99.0
+        self.assertNotEqual(pool.pool[0]["weights"]["param"][0].item(), 99.0)
+
+    def test_update_elo(self):
+        from train import OpponentPool
+        pool = OpponentPool(max_size=5)
+        pool.add_snapshot({"w": 1}, elo=1000.0)
+        initial_elo = pool.pool[0]["elo"]
+        pool.update_elo(0, result=1.0)  # win
+        self.assertGreater(pool.pool[0]["elo"], initial_elo)
+
+
 if __name__ == "__main__":
     unittest.main()

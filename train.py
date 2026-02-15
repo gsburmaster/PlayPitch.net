@@ -9,10 +9,80 @@ Trains DQN agents to play Pitch (Auction Pitch) using:
 - Curriculum learning (progressive win thresholds)
 - TensorBoard logging, checkpointing with resume, ONNX export
 
-Usage:
-    python train.py
-    python train.py --num_episodes 1000000 --device cuda
+Three training modes:
+  Serial    (default)       — one game at a time, simplest
+  Parallel  (--parallel)    — N games with batched NN inference, Python envs
+  Vectorized (--vectorized) — N games with all state on GPU tensors (fastest)
+
+Quick start:
+    python train.py                                     # serial, CPU
+    python train.py --device cuda                       # serial, GPU
+    python train.py --parallel true --num_envs 64       # parallel, 64 games
+    python train.py --vectorized true --num_envs 512    # vectorized, 512 games
+
+Resume from checkpoint:
     python train.py --resume checkpoints_v2/checkpoint_ep150000.pt
+    python train.py --vectorized true --resume checkpoints_v2/checkpoint_ep150000.pt
+
+Common options:
+    --num_episodes N      Total episodes to train (default: 500,000)
+    --device DEVICE       "auto", "cuda", "cpu", or "mps" (default: auto)
+    --parallel true       Use batched inference across N Python game envs
+    --vectorized true     Use GPU-native vectorized env (all game state on device)
+    --num_envs N          Number of parallel games (default: 512)
+    --lr RATE             Learning rate (default: 3e-4)
+    --batch_size N        Replay buffer sample size (default: 256)
+    --buffer_size N       Replay buffer capacity (default: 500,000)
+    --eval_freq N         Evaluate every N episodes (default: 5,000)
+    --eval_games N        Games per evaluation (default: 200)
+    --checkpoint_dir DIR  Where to save checkpoints (default: checkpoints_v2)
+    --checkpoint_freq N   Save checkpoint every N episodes (default: 10,000)
+    --resume PATH         Resume training from a checkpoint file
+    --teammate_noise F    Probability teammate plays randomly (default: 0.15)
+    --onnx_output PATH    ONNX export filename (default: agent_0_longtraining.onnx)
+
+Training modes explained:
+
+  Serial (default):
+    Plays one game at a time. The agent acts, the environment steps, and
+    transitions are stored in a replay buffer. Simple and correct, but slow
+    because GPU sits idle during Python env execution.
+
+  Parallel (--parallel true):
+    Runs N Python PitchEnv instances simultaneously. At each step, games are
+    grouped by acting team and actions are computed in a single batched forward
+    pass. ~10-30x faster than serial. Good for CPU or when GPU memory is limited.
+
+  Vectorized (--vectorized true):
+    All N games run as tensor operations inside VectorizedPitchEnv. Game state
+    (hands, tricks, scores) lives on the GPU as (N,...) tensors. No Python game
+    loop in the hot path — only the discard-and-fill phase falls back to CPU
+    (once per round). Fastest mode, best for CUDA.
+
+Curriculum learning:
+    The win threshold starts low (5 points) and increases as training progresses,
+    so the agent first learns short games before tackling full 54-point games.
+    The schedule is defined in config.curriculum:
+        0%  → threshold  5    (very short games)
+        10% → threshold 10
+        30% → threshold 20
+        60% → threshold 35
+        80% → threshold 54   (full game)
+
+Self-play:
+    Two agents train simultaneously — one for team 0 (seats 0,2) and one for
+    team 1 (seats 1,3). Periodically, the current agent weights are saved to
+    an opponent pool, and the opponent agent loads a random past snapshot.
+    This prevents overfitting to a single opponent strategy.
+
+Outputs:
+    checkpoints_v2/              Checkpoint directory
+    checkpoints_v2/best_*.pt     Best models by win rate (keeps top 5)
+    checkpoints_v2/checkpoint_*.pt  Periodic checkpoints
+    agent_0_longtraining.onnx    Final ONNX model for the webserver
+
+All config fields in config.py can be overridden via --flag value on the
+command line. Run `python train.py --help` for the full list.
 """
 
 import copy

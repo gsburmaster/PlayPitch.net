@@ -1344,10 +1344,28 @@ def train_vectorized(config: TrainingConfig):
 
         # --- Step the vectorized env ---
         prev_obs = obs.clone()
+        phase_before = env.phase.clone()
         next_obs, rewards, dones = env.step(actions)
 
-        # Apply reward scaling
+        # Apply reward scaling + bid bonus shaping
         rewards = rewards * config.reward_scale
+
+        # Bid quality bonus (matches PitchEnvWrapper logic)
+        was_bidding = phase_before == 0  # PHASE_BIDDING
+        made_bid = was_bidding & (actions >= 11) & (actions <= 18)
+        if made_bid.any():
+            bid_amount = (actions[made_bid] - 6).long()
+            # Count non-zero cards in hand (obs indices 1,3,5,...,19 are ranks)
+            hand_ranks = prev_obs[made_bid, 1::2][:, :10]
+            num_cards = (hand_ranks > 0).sum(dim=1)
+            safe_bid = (bid_amount <= 7) & (num_cards >= 4)
+            risky_bid = bid_amount >= 10
+            rewards[made_bid] = rewards[made_bid] + torch.where(
+                safe_bid, torch.tensor(config.bid_bonus * config.reward_scale, device=device),
+                torch.where(risky_bid,
+                             torch.tensor(-config.bid_bonus * config.reward_scale, device=device),
+                             torch.tensor(0.0, device=device)))
+
 
         # Accumulate episode rewards (for team 0 acting games)
         team0_acting = (acting_team == 0) & ~just_done

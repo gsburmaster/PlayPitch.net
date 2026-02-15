@@ -275,6 +275,37 @@ class Agent:
         q_values[mask_t == 0] = float("-inf")
         return int(q_values.argmax().item())
 
+    def act_batch(self, states: np.ndarray, action_masks: np.ndarray,
+                  greedy: bool = False) -> np.ndarray:
+        """Select actions for a batch of states in one forward pass.
+
+        states: (B, state_dim) array
+        action_masks: (B, num_actions) array
+        Returns: (B,) array of action indices
+        """
+        eps = 0.0 if greedy else self.epsilon
+        B = len(states)
+        actions = np.zeros(B, dtype=np.int64)
+
+        # Split batch: explore vs exploit
+        explore = np.random.rand(B) < eps
+        for i in np.where(explore)[0]:
+            valid = np.where(action_masks[i] == 1)[0]
+            actions[i] = np.random.choice(valid)
+
+        exploit_idx = np.where(~explore)[0]
+        if len(exploit_idx) > 0:
+            batch_t = torch.FloatTensor(states[exploit_idx]).to(self.device)
+            self.q_network.eval()
+            with torch.no_grad():
+                q_values = self.q_network(batch_t)
+            self.q_network.train()
+            mask_t = torch.FloatTensor(action_masks[exploit_idx]).to(self.device)
+            q_values[mask_t == 0] = float("-inf")
+            actions[exploit_idx] = q_values.argmax(dim=1).cpu().numpy()
+
+        return actions
+
     def remember(self, state, action, reward, next_state, done):
         self.buffer.add(state, action, reward, next_state, done)
 
@@ -374,6 +405,109 @@ class PitchEnvWrapper(gym.Wrapper):
 
 
 # ---------------------------------------------------------------------------
+# Parallel Game Manager — batched inference across N simultaneous games
+# ---------------------------------------------------------------------------
+
+class ParallelGameManager:
+    """Manages N simultaneous PitchEnvWrapper instances, grouping games by
+    acting team for batched neural network inference."""
+
+    def __init__(self, num_envs: int, agent: Agent, agent_opp: Agent,
+                 config: TrainingConfig, make_env_fn):
+        self.num_envs = num_envs
+        self.agent = agent
+        self.agent_opp = agent_opp
+        self.config = config
+        self.make_env_fn = make_env_fn  # callable(seed, threshold) -> env
+
+        self.envs: List[Optional[PitchEnvWrapper]] = [None] * num_envs
+        self.obs: List[Optional[Dict]] = [None] * num_envs
+        self.done = [True] * num_envs
+        self.episode_rewards: List[List[float]] = [[0.0, 0.0] for _ in range(num_envs)]
+
+        # Per-game noisy seats (re-rolled on reset)
+        self.noisy_seat_team0 = np.zeros(num_envs, dtype=np.int32)
+        self.noisy_seat_team1 = np.zeros(num_envs, dtype=np.int32)
+
+        # Track how many episodes have been started (for seeding)
+        self.episodes_started = 0
+
+    def step_all(self, threshold: int, base_seed: int) -> List[float]:
+        """Advance all games by one step. Returns completed episode rewards (team 0)."""
+        completed = []
+
+        # Reset finished games
+        for i in range(self.num_envs):
+            if self.done[i]:
+                seed = base_seed + self.episodes_started
+                self.envs[i] = self.make_env_fn(threshold)
+                self.obs[i], _ = self.envs[i].reset(seed=seed)
+                self.done[i] = False
+                self.episode_rewards[i] = [0.0, 0.0]
+                self.noisy_seat_team0[i] = np.random.choice([0, 2])
+                self.noisy_seat_team1[i] = np.random.choice([1, 3])
+                self.episodes_started += 1
+
+        # Group by acting team (0 or 1)
+        for team in [0, 1]:
+            acting_agent = self.agent if team == 0 else self.agent_opp
+
+            game_indices = [i for i in range(self.num_envs)
+                            if not self.done[i]
+                            and self.envs[i].env.current_player % 2 == team]
+            if not game_indices:
+                continue
+
+            # Separate noisy games (random action) from normal (batched inference)
+            noise_indices = set()
+            for i in game_indices:
+                cp = self.envs[i].env.current_player
+                noisy_seat = (self.noisy_seat_team0[i] if team == 0
+                              else self.noisy_seat_team1[i])
+                if cp == noisy_seat and np.random.rand() < self.config.teammate_noise:
+                    noise_indices.add(i)
+
+            # Batched inference for non-noisy games
+            batch_indices = [i for i in game_indices if i not in noise_indices]
+            if batch_indices:
+                states = np.array([flatten_observation(self.obs[i])
+                                   for i in batch_indices])
+                masks = np.array([self.obs[i]["action_mask"]
+                                  for i in batch_indices])
+                actions = acting_agent.act_batch(states, masks)
+
+                for idx, game_i in enumerate(batch_indices):
+                    self._apply_action(game_i, int(actions[idx]), team, completed)
+
+            # Random actions for noisy games
+            for game_i in noise_indices:
+                valid = np.where(self.obs[game_i]["action_mask"] == 1)[0]
+                action = int(np.random.choice(valid))
+                self._apply_action(game_i, action, team, completed)
+
+        return completed
+
+    def _apply_action(self, game_i: int, action: int, team: int,
+                      completed: List[float]):
+        env = self.envs[game_i]
+        obs = self.obs[game_i]
+        state = flatten_observation(obs)
+
+        next_obs, reward, done, _, _ = env.step(action, obs)
+        next_state = flatten_observation(next_obs)
+
+        acting_agent = self.agent if team == 0 else self.agent_opp
+        acting_agent.remember(state, action, reward, next_state, done)
+
+        self.obs[game_i] = next_obs
+        self.episode_rewards[game_i][team] += reward
+
+        if done:
+            self.done[game_i] = True
+            completed.append(self.episode_rewards[game_i][0])
+
+
+# ---------------------------------------------------------------------------
 # Opponent Pool for Self-Play
 # ---------------------------------------------------------------------------
 
@@ -458,6 +592,57 @@ def evaluate(agent: Agent, config: TrainingConfig, num_games: int,
         "win_rate": wins / n,
         "avg_margin": total_margin / n,
         "avg_length": total_length / n,
+    }
+
+
+def evaluate_parallel(agent: Agent, config: TrainingConfig, num_games: int,
+                      opponent_weights: Optional[dict] = None,
+                      device: torch.device = torch.device("cpu")) -> Dict[str, float]:
+    """Batched evaluation — runs all games simultaneously with act_batch."""
+    opp_agent = Agent(config, device)
+    if opponent_weights is not None:
+        opp_agent.q_network.load_state_dict(opponent_weights)
+    opp_agent.q_network.eval()
+
+    envs = [PitchEnv() for _ in range(num_games)]
+    obs_list = [env.reset(seed=config.seed + 1_000_000 + i)[0]
+                for i, env in enumerate(envs)]
+    done_list = [False] * num_games
+    steps = [0] * num_games
+
+    while not all(done_list):
+        for team in [0, 1]:
+            acting = agent if team == 0 else opp_agent
+            indices = [i for i in range(num_games)
+                       if not done_list[i]
+                       and envs[i].current_player % 2 == team]
+            if not indices:
+                continue
+
+            states = np.array([flatten_observation(obs_list[i]) for i in indices])
+            masks = np.array([obs_list[i]["action_mask"] for i in indices])
+
+            if opponent_weights is None and team == 1:
+                # Random opponent: pick random valid actions
+                actions = np.array([
+                    int(np.random.choice(np.where(masks[j] == 1)[0]))
+                    for j in range(len(indices))
+                ], dtype=np.int64)
+            else:
+                actions = acting.act_batch(states, masks, greedy=True)
+
+            for idx, i in enumerate(indices):
+                obs_list[i], _, done_list[i], _, _ = envs[i].step(
+                    int(actions[idx]), obs_list[i])
+                steps[i] += 1
+
+    wins = sum(1 for env in envs if env.scores[0] > env.scores[1])
+    margins = [env.scores[0] - env.scores[1] for env in envs]
+    n = max(num_games, 1)
+    return {
+        "win_rate": wins / n,
+        "avg_margin": sum(margins) / n,
+        "avg_length": sum(steps) / n,
     }
 
 
@@ -790,6 +975,545 @@ def train(config: TrainingConfig):
     print("Done!")
 
 
+# ---------------------------------------------------------------------------
+# Parallel Training Loop (batched inference across N simultaneous games)
+# ---------------------------------------------------------------------------
+
+def train_parallel(config: TrainingConfig):
+    set_seed(config.seed)
+    device = get_device(config)
+    num_envs = config.num_envs
+    print(f"Using device: {device}")
+    print(f"Parallel training: {num_envs} envs, {config.num_episodes:,} episodes")
+
+    # TensorBoard (optional)
+    writer = None
+    try:
+        from torch.utils.tensorboard import SummaryWriter
+        writer = SummaryWriter(log_dir=os.path.join(config.checkpoint_dir, "tb_logs"))
+        print("TensorBoard logging enabled")
+    except ImportError:
+        print("TensorBoard not available, logging to console only")
+
+    # Two agents: one for team 0 (seats 0,2), one for team 1 (seats 1,3)
+    agent = Agent(config, device)
+    agent_opp = Agent(config, device)
+
+    opponent_pool = OpponentPool(config.opponent_pool_size)
+
+    start_episode = 0
+    global_step = 0
+    best_win_rate = 0.0
+
+    if config.resume:
+        start_episode, global_step, best_win_rate = load_checkpoint(
+            config.resume, agent, agent_opp, opponent_pool, device)
+
+    best_models: List[Tuple[float, str]] = []
+
+    def make_env(threshold):
+        return PitchEnvWrapper(PitchEnv(win_threshold=threshold),
+                               config.reward_scale, config.bid_bonus)
+
+    manager = ParallelGameManager(num_envs, agent, agent_opp, config, make_env)
+    manager.episodes_started = start_episode
+
+    start_time = time.time()
+    completed_episodes = start_episode
+    recent_rewards: deque = deque(maxlen=1000)
+    recent_losses: deque = deque(maxlen=1000)
+    recent_q_means: deque = deque(maxlen=1000)
+    train_accumulator = 0
+
+    # Track episode-boundary events (logging, checkpointing, etc.)
+    last_log_episode = start_episode
+    last_snapshot_episode = start_episode
+    last_eval_episode = start_episode
+    last_checkpoint_episode = start_episode
+
+    while completed_episodes < config.num_episodes:
+        # --- Schedules based on completed episodes ---
+        progress = completed_episodes / config.num_episodes
+        threshold = config.curriculum[-1][1]
+        for start_frac, thresh in config.curriculum:
+            if progress >= start_frac:
+                threshold = thresh
+
+        decay_progress = min(1.0, completed_episodes / config.epsilon_decay_episodes)
+        epsilon = config.epsilon_end + (config.epsilon_start - config.epsilon_end) * \
+            math.exp(-5.0 * decay_progress)
+        agent.epsilon = epsilon
+        agent_opp.epsilon = epsilon
+
+        beta = config.per_beta_start + (config.per_beta_end - config.per_beta_start) * progress
+
+        # --- Self-play: swap opponent weights periodically ---
+        # (applied once per step_all; all in-flight games share the same opponent)
+        if opponent_pool.pool and np.random.rand() < 0.5 / num_envs:
+            pool_entry = opponent_pool.sample_opponent()
+            if pool_entry is not None:
+                agent_opp.q_network.load_state_dict(pool_entry["weights"])
+
+        # --- Step all parallel games ---
+        finished_rewards = manager.step_all(threshold, config.seed)
+        global_step += num_envs
+
+        for reward in finished_rewards:
+            recent_rewards.append(reward)
+            completed_episodes += 1
+
+        # --- LR scheduler: step once per completed episode ---
+        for _ in finished_rewards:
+            if agent.buffer.size >= config.batch_size:
+                agent.scheduler.step()
+            if agent_opp.buffer.size >= config.batch_size:
+                agent_opp.scheduler.step()
+
+        # --- Decoupled training ---
+        train_accumulator += num_envs
+        if train_accumulator >= config.replay_freq * num_envs:
+            train_accumulator = 0
+            metrics = agent.train_step(beta)
+            if metrics:
+                recent_losses.append(metrics["loss"])
+                recent_q_means.append(metrics["q_mean"])
+                if writer and global_step % (100 * num_envs) < num_envs:
+                    for k, v in metrics.items():
+                        writer.add_scalar(f"agent/{k}", v, global_step)
+                    writer.add_scalar("agent/beta", beta, global_step)
+
+            opp_metrics = agent_opp.train_step(beta)
+            if opp_metrics and writer and global_step % (100 * num_envs) < num_envs:
+                for k, v in opp_metrics.items():
+                    writer.add_scalar(f"opponent/{k}", v, global_step)
+
+        # --- Episode-boundary events (fire when crossing thresholds) ---
+
+        # Logging
+        if completed_episodes - last_log_episode >= config.log_freq and completed_episodes > 0:
+            last_log_episode = completed_episodes
+            elapsed = time.time() - start_time
+            eps_per_sec = (completed_episodes - start_episode) / max(elapsed, 1)
+            remaining = (config.num_episodes - completed_episodes) / max(eps_per_sec, 0.01)
+            avg_reward = sum(recent_rewards) / max(len(recent_rewards), 1)
+            avg_loss = sum(recent_losses) / max(len(recent_losses), 1) if recent_losses else 0
+            avg_q = sum(recent_q_means) / max(len(recent_q_means), 1) if recent_q_means else 0
+
+            lr = agent.optimizer.param_groups[0]["lr"]
+            print(
+                f"Ep {completed_episodes:>7,}/{config.num_episodes:,} | "
+                f"Thr: {threshold:>2} | "
+                f"Eps: {epsilon:.4f} | "
+                f"LR: {lr:.2e} | "
+                f"Avg R: {avg_reward:>7.2f} | "
+                f"Avg L: {avg_loss:.4f} | "
+                f"Avg Q: {avg_q:.2f} | "
+                f"Buf: {agent.buffer.size:,} | "
+                f"{eps_per_sec:.0f} ep/s | "
+                f"ETA: {remaining/3600:.1f}h"
+            )
+
+            if writer:
+                writer.add_scalar("train/avg_reward", avg_reward, completed_episodes)
+                writer.add_scalar("train/epsilon", epsilon, completed_episodes)
+                writer.add_scalar("train/lr", lr, completed_episodes)
+                writer.add_scalar("train/buffer_size", agent.buffer.size, completed_episodes)
+                writer.add_scalar("train/eps_per_sec", eps_per_sec, completed_episodes)
+                writer.add_scalar("train/threshold", threshold, completed_episodes)
+
+        # Opponent pool snapshot
+        if completed_episodes - last_snapshot_episode >= config.opponent_snapshot_freq \
+                and completed_episodes > 0:
+            last_snapshot_episode = completed_episodes
+            opponent_pool.add_snapshot(agent.q_network.state_dict())
+            print(f"  Opponent pool snapshot added (pool size: {len(opponent_pool.pool)})")
+
+        # Evaluation
+        if completed_episodes - last_eval_episode >= config.eval_freq \
+                and completed_episodes > 0:
+            last_eval_episode = completed_episodes
+            print(f"  Evaluating at episode {completed_episodes}...")
+
+            eval_random = evaluate_parallel(
+                agent, config, config.eval_games, None, device)
+            print(f"    vs Random:  WR={eval_random['win_rate']:.1%}  "
+                  f"Margin={eval_random['avg_margin']:.1f}  "
+                  f"Len={eval_random['avg_length']:.0f}")
+
+            if opponent_pool.pool:
+                latest_opp = opponent_pool.pool[-1]["weights"]
+                eval_pool = evaluate_parallel(
+                    agent, config, config.eval_games, latest_opp, device)
+                print(f"    vs Pool:    WR={eval_pool['win_rate']:.1%}  "
+                      f"Margin={eval_pool['avg_margin']:.1f}")
+            else:
+                eval_pool = {"win_rate": 0.0, "avg_margin": 0.0, "avg_length": 0.0}
+
+            if writer:
+                for k, v in eval_random.items():
+                    writer.add_scalar(f"eval_random/{k}", v, completed_episodes)
+                for k, v in eval_pool.items():
+                    writer.add_scalar(f"eval_pool/{k}", v, completed_episodes)
+
+            wr = eval_random["win_rate"]
+            if wr > best_win_rate:
+                best_win_rate = wr
+                best_path = os.path.join(config.checkpoint_dir,
+                                         f"best_ep{completed_episodes}_wr{wr:.3f}.pt")
+                save_checkpoint(best_path, agent, agent_opp, completed_episodes,
+                                global_step, best_win_rate, config, opponent_pool)
+                best_models.append((wr, best_path))
+                best_models.sort(key=lambda x: x[0], reverse=True)
+                while len(best_models) > config.best_models_to_keep:
+                    _, old_path = best_models.pop()
+                    if os.path.exists(old_path):
+                        os.remove(old_path)
+
+        # Periodic checkpoint
+        if completed_episodes - last_checkpoint_episode >= config.checkpoint_freq \
+                and completed_episodes > 0:
+            last_checkpoint_episode = completed_episodes
+            ckpt_path = os.path.join(config.checkpoint_dir,
+                                     f"checkpoint_ep{completed_episodes}.pt")
+            save_checkpoint(ckpt_path, agent, agent_opp, completed_episodes,
+                            global_step, best_win_rate, config, opponent_pool)
+
+    # --- Training complete ---
+    print("\nTraining complete!")
+    print(f"Best win rate vs random: {best_win_rate:.1%}")
+
+    if best_models:
+        best_path = best_models[0][1]
+        print(f"Loading best model: {best_path}")
+        ckpt = torch.load(best_path, map_location=device, weights_only=False)
+        agent.q_network.load_state_dict(ckpt["agent_q_state"])
+
+    export_onnx(agent.q_network, config.onnx_output, device, config.onnx_opset)
+
+    final_path = os.path.join(config.checkpoint_dir, "checkpoint_final.pt")
+    save_checkpoint(final_path, agent, agent_opp, config.num_episodes,
+                    global_step, best_win_rate, config, opponent_pool)
+
+    if writer:
+        writer.close()
+
+    print("Done!")
+
+
+def train_vectorized(config: TrainingConfig):
+    """Train using GPU-native vectorized environment (all game state on device)."""
+    from vectorized_env import VectorizedPitchEnv
+
+    set_seed(config.seed)
+    device = get_device(config)
+    N = config.num_envs
+    print(f"Using device: {device}")
+    print(f"Vectorized training: {N} envs, {config.num_episodes:,} episodes")
+
+    # TensorBoard (optional)
+    writer = None
+    try:
+        from torch.utils.tensorboard import SummaryWriter
+        writer = SummaryWriter(log_dir=os.path.join(config.checkpoint_dir, "tb_logs"))
+        print("TensorBoard logging enabled")
+    except ImportError:
+        print("TensorBoard not available, logging to console only")
+
+    agent = Agent(config, device)
+    agent_opp = Agent(config, device)
+    opponent_pool = OpponentPool(config.opponent_pool_size)
+
+    start_episode = 0
+    global_step = 0
+    best_win_rate = 0.0
+
+    if config.resume:
+        start_episode, global_step, best_win_rate = load_checkpoint(
+            config.resume, agent, agent_opp, opponent_pool, device)
+
+    best_models: List[Tuple[float, str]] = []
+
+    # Create vectorized env
+    threshold = config.curriculum[-1][1]
+    env = VectorizedPitchEnv(N, device, win_threshold=threshold)
+    env.reset_all()
+
+    # Track per-game episode rewards for team 0
+    episode_rewards = torch.zeros(N, device=device)
+
+    start_time = time.time()
+    completed_episodes = start_episode
+    recent_rewards: deque = deque(maxlen=1000)
+    recent_losses: deque = deque(maxlen=1000)
+    recent_q_means: deque = deque(maxlen=1000)
+    train_accumulator = 0
+
+    last_log_episode = start_episode
+    last_snapshot_episode = start_episode
+    last_eval_episode = start_episode
+    last_checkpoint_episode = start_episode
+
+    while completed_episodes < config.num_episodes:
+        # --- Schedules ---
+        progress = completed_episodes / config.num_episodes
+        new_threshold = config.curriculum[-1][1]
+        for start_frac, thresh in config.curriculum:
+            if progress >= start_frac:
+                new_threshold = thresh
+        if new_threshold != env.win_threshold:
+            env.win_threshold = new_threshold
+
+        decay_progress = min(1.0, completed_episodes / config.epsilon_decay_episodes)
+        epsilon = config.epsilon_end + (config.epsilon_start - config.epsilon_end) * \
+            math.exp(-5.0 * decay_progress)
+        agent.epsilon = epsilon
+        agent_opp.epsilon = epsilon
+
+        beta = config.per_beta_start + (config.per_beta_end - config.per_beta_start) * progress
+
+        # Self-play: swap opponent weights periodically
+        if opponent_pool.pool and np.random.rand() < 0.5 / N:
+            pool_entry = opponent_pool.sample_opponent()
+            if pool_entry is not None:
+                agent_opp.q_network.load_state_dict(pool_entry["weights"])
+
+        # --- Auto-reset finished games ---
+        just_done = env.done.clone()
+        if just_done.any():
+            # Collect rewards before reset
+            for i in torch.where(just_done)[0]:
+                recent_rewards.append(episode_rewards[i].item())
+                completed_episodes += 1
+            episode_rewards[just_done] = 0.0
+            env.reset_done()
+
+        # --- Get observations and masks ---
+        obs = env.get_observations()  # (N, 119) on device
+        masks = env._get_action_mask()  # (N, 24) on device
+
+        # --- Batched inference by team ---
+        acting_team = (env.current_player % 2).long()  # (N,)
+        actions = torch.zeros(N, dtype=torch.long, device=device)
+
+        for team_id in [0, 1]:
+            team_mask = (acting_team == team_id) & ~env.done
+            if not team_mask.any():
+                continue
+            acting_agent = agent if team_id == 0 else agent_opp
+
+            team_obs = obs[team_mask]
+            team_masks = masks[team_mask].float()
+
+            # Teammate noise: random actions for a subset
+            n_team = team_mask.sum().item()
+            noise_roll = torch.rand(n_team, device=device)
+            is_noisy = noise_roll < config.teammate_noise
+
+            # Non-noisy: batched Q-network inference
+            exploit_mask = ~is_noisy
+            if exploit_mask.any():
+                acting_agent.q_network.eval()
+                with torch.no_grad():
+                    q_values = acting_agent.q_network(team_obs[exploit_mask])
+                acting_agent.q_network.train()
+                q_values[team_masks[exploit_mask] == 0] = float("-inf")
+
+                # Epsilon-greedy
+                explore = torch.rand(exploit_mask.sum().item(), device=device) < acting_agent.epsilon
+                greedy_actions = q_values.argmax(dim=1)
+                # Random valid actions for exploration
+                rand_actions = torch.zeros_like(greedy_actions)
+                for j in range(len(rand_actions)):
+                    valid = torch.where(team_masks[exploit_mask][j] == 1)[0]
+                    rand_actions[j] = valid[torch.randint(len(valid), (1,))]
+                team_actions_exploit = torch.where(explore, rand_actions, greedy_actions)
+
+                # Scatter back
+                team_indices = torch.where(team_mask)[0]
+                exploit_indices = team_indices[exploit_mask]
+                actions[exploit_indices] = team_actions_exploit
+
+            # Noisy: random valid actions
+            if is_noisy.any():
+                team_indices = torch.where(team_mask)[0]
+                noisy_indices = team_indices[is_noisy]
+                for j, gi in enumerate(noisy_indices):
+                    noisy_sub_idx = torch.where(is_noisy)[0][j]
+                    valid = torch.where(team_masks[noisy_sub_idx] == 1)[0]
+                    actions[gi] = valid[torch.randint(len(valid), (1,))]
+
+        # --- Step the vectorized env ---
+        prev_obs = obs.clone()
+        next_obs, rewards, dones = env.step(actions)
+
+        # Apply reward scaling
+        rewards = rewards * config.reward_scale
+
+        # Accumulate episode rewards (for team 0 acting games)
+        team0_acting = (acting_team == 0) & ~just_done
+        episode_rewards[team0_acting] += rewards[team0_acting]
+
+        # --- Store transitions in replay buffer (CPU transfer) ---
+        active = ~just_done
+        for team_id in [0, 1]:
+            team_active = active & (acting_team == team_id)
+            if not team_active.any():
+                continue
+            acting_agent = agent if team_id == 0 else agent_opp
+
+            s = prev_obs[team_active].cpu().numpy()
+            a = actions[team_active].cpu().numpy()
+            r = rewards[team_active].cpu().numpy()
+            ns = next_obs[team_active].cpu().numpy()
+            d = dones[team_active].cpu().numpy()
+
+            for j in range(len(s)):
+                acting_agent.remember(s[j], a[j], r[j], ns[j], d[j])
+
+        global_step += N
+
+        # --- Decoupled training ---
+        train_accumulator += N
+        if train_accumulator >= config.replay_freq * N:
+            train_accumulator = 0
+            metrics = agent.train_step(beta)
+            if metrics:
+                recent_losses.append(metrics["loss"])
+                recent_q_means.append(metrics["q_mean"])
+                if writer and global_step % (100 * N) < N:
+                    for k, v in metrics.items():
+                        writer.add_scalar(f"agent/{k}", v, global_step)
+                    writer.add_scalar("agent/beta", beta, global_step)
+
+            opp_metrics = agent_opp.train_step(beta)
+            if opp_metrics and writer and global_step % (100 * N) < N:
+                for k, v in opp_metrics.items():
+                    writer.add_scalar(f"opponent/{k}", v, global_step)
+
+        # --- LR scheduler: step per completed episode ---
+        new_completions = just_done.sum().item()
+        for _ in range(int(new_completions)):
+            if agent.buffer.size >= config.batch_size:
+                agent.scheduler.step()
+            if agent_opp.buffer.size >= config.batch_size:
+                agent_opp.scheduler.step()
+
+        # --- Logging ---
+        if completed_episodes - last_log_episode >= config.log_freq and completed_episodes > 0:
+            last_log_episode = completed_episodes
+            elapsed = time.time() - start_time
+            eps_per_sec = (completed_episodes - start_episode) / max(elapsed, 1)
+            remaining = (config.num_episodes - completed_episodes) / max(eps_per_sec, 0.01)
+            avg_reward = sum(recent_rewards) / max(len(recent_rewards), 1)
+            avg_loss = sum(recent_losses) / max(len(recent_losses), 1) if recent_losses else 0
+            avg_q = sum(recent_q_means) / max(len(recent_q_means), 1) if recent_q_means else 0
+            lr = agent.optimizer.param_groups[0]["lr"]
+
+            print(
+                f"Ep {completed_episodes:>7,}/{config.num_episodes:,} | "
+                f"Thr: {new_threshold:>2} | "
+                f"Eps: {epsilon:.4f} | "
+                f"LR: {lr:.2e} | "
+                f"Avg R: {avg_reward:>7.2f} | "
+                f"Avg L: {avg_loss:.4f} | "
+                f"Avg Q: {avg_q:.2f} | "
+                f"Buf: {agent.buffer.size:,} | "
+                f"{eps_per_sec:.0f} ep/s | "
+                f"ETA: {remaining/3600:.1f}h"
+            )
+
+            if writer:
+                writer.add_scalar("train/avg_reward", avg_reward, completed_episodes)
+                writer.add_scalar("train/epsilon", epsilon, completed_episodes)
+                writer.add_scalar("train/lr", lr, completed_episodes)
+                writer.add_scalar("train/buffer_size", agent.buffer.size, completed_episodes)
+                writer.add_scalar("train/eps_per_sec", eps_per_sec, completed_episodes)
+                writer.add_scalar("train/threshold", new_threshold, completed_episodes)
+
+        # Opponent pool snapshot
+        if completed_episodes - last_snapshot_episode >= config.opponent_snapshot_freq \
+                and completed_episodes > 0:
+            last_snapshot_episode = completed_episodes
+            opponent_pool.add_snapshot(agent.q_network.state_dict())
+            print(f"  Opponent pool snapshot added (pool size: {len(opponent_pool.pool)})")
+
+        # Evaluation
+        if completed_episodes - last_eval_episode >= config.eval_freq \
+                and completed_episodes > 0:
+            last_eval_episode = completed_episodes
+            print(f"  Evaluating at episode {completed_episodes}...")
+
+            eval_random = evaluate_parallel(
+                agent, config, config.eval_games, None, device)
+            print(f"    vs Random:  WR={eval_random['win_rate']:.1%}  "
+                  f"Margin={eval_random['avg_margin']:.1f}  "
+                  f"Len={eval_random['avg_length']:.0f}")
+
+            if opponent_pool.pool:
+                latest_opp = opponent_pool.pool[-1]["weights"]
+                eval_pool = evaluate_parallel(
+                    agent, config, config.eval_games, latest_opp, device)
+                print(f"    vs Pool:    WR={eval_pool['win_rate']:.1%}  "
+                      f"Margin={eval_pool['avg_margin']:.1f}")
+            else:
+                eval_pool = {"win_rate": 0.0, "avg_margin": 0.0, "avg_length": 0.0}
+
+            if writer:
+                for k, v in eval_random.items():
+                    writer.add_scalar(f"eval_random/{k}", v, completed_episodes)
+                for k, v in eval_pool.items():
+                    writer.add_scalar(f"eval_pool/{k}", v, completed_episodes)
+
+            wr = eval_random["win_rate"]
+            if wr > best_win_rate:
+                best_win_rate = wr
+                best_path = os.path.join(config.checkpoint_dir,
+                                         f"best_ep{completed_episodes}_wr{wr:.3f}.pt")
+                save_checkpoint(best_path, agent, agent_opp, completed_episodes,
+                                global_step, best_win_rate, config, opponent_pool)
+                best_models.append((wr, best_path))
+                best_models.sort(key=lambda x: x[0], reverse=True)
+                while len(best_models) > config.best_models_to_keep:
+                    _, old_path = best_models.pop()
+                    if os.path.exists(old_path):
+                        os.remove(old_path)
+
+        # Periodic checkpoint
+        if completed_episodes - last_checkpoint_episode >= config.checkpoint_freq \
+                and completed_episodes > 0:
+            last_checkpoint_episode = completed_episodes
+            ckpt_path = os.path.join(config.checkpoint_dir,
+                                     f"checkpoint_ep{completed_episodes}.pt")
+            save_checkpoint(ckpt_path, agent, agent_opp, completed_episodes,
+                            global_step, best_win_rate, config, opponent_pool)
+
+    # --- Training complete ---
+    print("\nTraining complete!")
+    print(f"Best win rate vs random: {best_win_rate:.1%}")
+
+    if best_models:
+        best_path = best_models[0][1]
+        print(f"Loading best model: {best_path}")
+        ckpt = torch.load(best_path, map_location=device, weights_only=False)
+        agent.q_network.load_state_dict(ckpt["agent_q_state"])
+
+    export_onnx(agent.q_network, config.onnx_output, device, config.onnx_opset)
+
+    final_path = os.path.join(config.checkpoint_dir, "checkpoint_final.pt")
+    save_checkpoint(final_path, agent, agent_opp, config.num_episodes,
+                    global_step, best_win_rate, config, opponent_pool)
+
+    if writer:
+        writer.close()
+
+    print("Done!")
+
+
 if __name__ == "__main__":
     config = TrainingConfig.from_args()
-    train(config)
+    if config.vectorized:
+        train_vectorized(config)
+    elif config.parallel:
+        train_parallel(config)
+    else:
+        train(config)

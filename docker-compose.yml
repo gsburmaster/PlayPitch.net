@@ -7,4 +7,4 @@ services:
       - "127.0.0.1:1337:1337"
     environment:
       - NODE_ENV=production
-      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-https://www.playpitch.net,https://playpitch.net}

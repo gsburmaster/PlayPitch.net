@@ -3,6 +3,7 @@ import { Button } from "react-bootstrap";
 import CreateGameModal from "../components/modals/CreateGameModal";
 import JoinGameModal from "../components/modals/JoinGameModal";
 import HowToPlayModal from "../components/modals/HowToPlayModal";
+import PrivacyPolicyModal from "../components/modals/PrivacyPolicyModal";
 import { useAppDispatch } from "../contexts/AppContext";
 import { useToast } from "../components/common/Toast";
 import type { SeatIndex } from "../types";
@@ -10,7 +11,7 @@ import "../styles/splash.css";
 
 const API_BASE = import.meta.env.VITE_API_URL || "";
 
-type ModalView = "none" | "create" | "join" | "rules";
+type ModalView = "none" | "create" | "join" | "rules" | "privacy";
 
 export default function SplashScreen() {
   const dispatch = useAppDispatch();
@@ -104,9 +105,14 @@ export default function SplashScreen() {
         </div>
       </div>
 
-      <button className="splash-link" onClick={() => setModalView("rules")}>
-        How to Play
-      </button>
+      <div className="splash-links">
+        <button className="splash-link" onClick={() => setModalView("rules")}>
+          How to Play
+        </button>
+        <button className="splash-link" onClick={() => setModalView("privacy")}>
+          Privacy Policy
+        </button>
+      </div>
 
       <CreateGameModal
         show={modalView === "create"}
@@ -126,6 +132,10 @@ export default function SplashScreen() {
       />
       <HowToPlayModal
         show={modalView === "rules"}
+        onClose={() => setModalView("none")}
+      />
+      <PrivacyPolicyModal
+        show={modalView === "privacy"}
         onClose={() => setModalView("none")}
       />
     </div>

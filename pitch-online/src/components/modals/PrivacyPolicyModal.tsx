@@ -20,7 +20,7 @@ export default function PrivacyPolicyModal({
             When you play, we collect only your <strong>display name</strong>{" "}
             (the nickname you enter on the home screen). This is stored in
             server memory only and is never saved to a database or written to
-            disk.
+            disk. We also collect your ip address and other connection info for security / logging purposes.
           </p>
         </Section>
 
@@ -36,7 +36,7 @@ export default function PrivacyPolicyModal({
             All game data (your display name, game state, and room information)
             exists only in server memory and is automatically deleted when your
             game room expires &mdash; at most 30 minutes after the last
-            activity. There is no persistent storage.
+            activity. There is no persistent storage. Your ip address / connection info is kept until we manually delete the logs
           </p>
         </Section>
 
@@ -68,6 +68,9 @@ export default function PrivacyPolicyModal({
   );
 }
 
+<<<<<<< HEAD
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+=======
 function Section({
   title,
   children,
@@ -75,6 +78,7 @@ function Section({
   title: string;
   children: React.ReactNode;
 }) {
+>>>>>>> 50f336509c1d29ee831e1c1e26dbfe2e5994ccc5
   return (
     <div className="rules-section">
       <h6 className="rules-section-title">{title}</h6>

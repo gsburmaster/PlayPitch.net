@@ -209,22 +209,36 @@ class SumTree:
 # ---------------------------------------------------------------------------
 
 class PrioritizedReplayBuffer:
-    def __init__(self, capacity: int, alpha: float = 0.6):
+    def __init__(self, capacity: int, obs_dim: int = 119, alpha: float = 0.6):
         self.tree = SumTree(capacity)
+        self.capacity = capacity
         self.alpha = alpha
         self.min_priority = 1e-6
+        # Pre-allocated contiguous arrays — no Python objects in the hot path
+        self.states = np.zeros((capacity, obs_dim), dtype=np.float32)
+        self.actions = np.zeros(capacity, dtype=np.int64)
+        self.rewards = np.zeros(capacity, dtype=np.float32)
+        self.next_states = np.zeros((capacity, obs_dim), dtype=np.float32)
+        self.dones = np.zeros(capacity, dtype=np.bool_)
 
     def add(self, state, action, reward, next_state, done):
-        # max_priority is already in tree-space (p^alpha); use it directly
+        pos = self.tree.write_pos
+        # Copy into pre-allocated arrays (breaks reference chains to GPU tensors)
+        self.states[pos] = state
+        self.actions[pos] = action
+        self.rewards[pos] = reward
+        self.next_states[pos] = next_state
+        self.dones[pos] = done
+        # SumTree stores just the position index, not the data
         priority = self.tree.max_priority
         if priority == 0:
             priority = 1.0
-        self.tree.add(priority, (state, action, reward, next_state, done))
+        self.tree.add(priority, pos)
 
     def sample(self, batch_size: int, beta: float = 0.4):
         indices = []
         priorities = []
-        samples = []
+        data_positions = []
         total = self.tree.total
         segment = total / batch_size
 
@@ -232,35 +246,29 @@ class PrioritizedReplayBuffer:
             lo = segment * i
             hi = segment * (i + 1)
             s = np.random.uniform(lo, hi)
-            # Clamp to valid range — float arithmetic can exceed total
             s = min(s, total - 1e-8)
-            idx, priority, data = self.tree.get(s)
-            if data is None:
-                # Fallback: sample from safe range
+            idx, priority, pos = self.tree.get(s)
+            if pos is None:
                 s = np.random.uniform(0, total - 1e-8)
-                idx, priority, data = self.tree.get(s)
-            if data is None:
-                # Last resort: use the first valid leaf
+                idx, priority, pos = self.tree.get(s)
+            if pos is None:
                 idx = self.tree.capacity - 1
                 priority = self.tree.tree[idx]
-                data = self.tree.data[0]
+                pos = 0
             indices.append(idx)
             priorities.append(max(priority, 1e-8))
-            samples.append(data)
+            data_positions.append(pos)
 
+        dp = np.array(data_positions, dtype=np.int64)
         total = self.tree.total
         n = self.tree.size
         probs = np.array(priorities, dtype=np.float64) / (total + 1e-10)
         weights = (n * probs + 1e-10) ** (-beta)
         weights /= weights.max()
 
-        states = np.array([s[0] for s in samples], dtype=np.float32)
-        actions = np.array([s[1] for s in samples], dtype=np.int64)
-        rewards = np.array([s[2] for s in samples], dtype=np.float32)
-        next_states = np.array([s[3] for s in samples], dtype=np.float32)
-        dones = np.array([s[4] for s in samples], dtype=np.bool_)
-
-        return (states, actions, rewards, next_states, dones,
+        return (self.states[dp].copy(), self.actions[dp].copy(),
+                self.rewards[dp].copy(), self.next_states[dp].copy(),
+                self.dones[dp].copy(),
                 np.array(indices, dtype=np.int64),
                 weights.astype(np.float32))
 
@@ -341,7 +349,7 @@ class Agent:
             self.optimizer, T_max=config.num_episodes, eta_min=config.lr_min,
         )
 
-        self.buffer = PrioritizedReplayBuffer(config.buffer_size, config.per_alpha)
+        self.buffer = PrioritizedReplayBuffer(config.buffer_size, config.input_dim, config.per_alpha)
         self.epsilon = config.epsilon_start
 
     def act(self, state: np.ndarray, action_mask: np.ndarray, greedy: bool = False) -> int:
@@ -1479,6 +1487,10 @@ def train_vectorized(config: TrainingConfig):
         episode_rewards[team0_acting] += rewards[team0_acting]
 
         # --- Store transitions in replay buffer (CPU transfer) ---
+        # Sync MPS before CPU transfer to prevent async memory corruption
+        if device.type == 'mps':
+            torch.mps.synchronize()
+
         active = ~just_done
         for team_id in [0, 1]:
             team_active = active & (acting_team == team_id)
@@ -1486,11 +1498,12 @@ def train_vectorized(config: TrainingConfig):
                 continue
             acting_agent = agent if team_id == 0 else agent_opp
 
-            s = prev_obs[team_active].cpu().numpy()
-            a = actions[team_active].cpu().numpy()
-            r = rewards[team_active].cpu().numpy()
-            ns = next_obs[team_active].cpu().numpy()
-            d = dones[team_active].cpu().numpy()
+            # .copy() breaks reference chain: numpy view → CPU tensor → GPU tensor
+            s = prev_obs[team_active].cpu().numpy().copy()
+            a = actions[team_active].cpu().numpy().copy()
+            r = rewards[team_active].cpu().numpy().copy()
+            ns = next_obs[team_active].cpu().numpy().copy()
+            d = dones[team_active].cpu().numpy().copy()
 
             for j in range(len(s)):
                 acting_agent.remember(s[j], a[j], r[j], ns[j], d[j])

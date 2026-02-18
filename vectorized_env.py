@@ -525,12 +525,18 @@ class VectorizedPitchEnv:
         self.trick_players[game_idx, iter_pos] = self.current_player[m]
 
         # Remove from hand and compact (shift remaining cards left to fill gap)
-        for k in range(len(game_idx)):
-            gi, pi, si = game_idx[k].item(), player_idx[k].item(), slot_idx[k].item()
-            h = self.hands[gi, pi].clone()   # full copy, not a view
-            h[si:-1] = h[si + 1:].clone()
-            h[-1] = 0
-            self.hands[gi, pi] = h           # single write back
+        # Vectorized: gather-based shift avoids per-game Python loop + tensor clones
+        M = len(game_idx)
+        arange10 = torch.arange(10, device=self.device).unsqueeze(0).expand(M, -1)
+        si_expanded = slot_idx.unsqueeze(1)  # (M, 1)
+        # For positions >= removed slot, source is position + 1 (clamped to 9)
+        gather_src = torch.where(
+            arange10 >= si_expanded, (arange10 + 1).clamp(max=9), arange10
+        ).long()
+        hands_batch = self.hands[game_idx, player_idx]  # (M, 10)
+        new_hands = hands_batch.gather(1, gather_src)
+        new_hands[:, -1] = 0  # last slot always empty after removal
+        self.hands[game_idx, player_idx] = new_hands
 
         # Track played cards
         pc_idx = self.played_cards_idx[m].long()
@@ -584,27 +590,11 @@ class VectorizedPitchEnv:
         if not candidates.any():
             return
 
-        round_should_end = torch.zeros(self.N, dtype=torch.bool, device=self.device)
-        for i in torch.where(candidates)[0]:
-            gi = i.item()
-            has_valid = False
-            trump = self.trump_suit[gi].item()
-            off_jack_suit = trump ^ 1
-            for p in range(4):
-                hand = self.hands[gi, p]
-                for s in range(10):
-                    c = hand[s].item()
-                    if c == 0:
-                        continue
-                    suit = c // 16
-                    rank = c % 16
-                    if suit == trump or c == JOKER_CODE or (rank == 12 and suit == off_jack_suit):
-                        has_valid = True
-                        break
-                if has_valid:
-                    break
-            if not has_valid:
-                round_should_end[gi] = True
+        # Check all 4 players' hands across all N games — fully vectorized
+        all_hands = self.hands  # (N, 4, 10)
+        valid = self._is_valid_play(all_hands) & (all_hands != 0)  # (N, 4, 10)
+        any_valid = valid.any(dim=2).any(dim=1)  # (N,)
+        round_should_end = candidates & ~any_valid
 
         if round_should_end.any():
             self._end_round(round_should_end)

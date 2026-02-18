@@ -845,6 +845,7 @@ class TestMultiEnvStep(unittest.TestCase):
         env.trump_suit[0] = 0
         env.current_bid[0] = 5
         env.current_high_bidder[0] = 0
+        env.current_player[0] = 0
         # Give game 0 valid cards
         env.hands[0, 0, 0] = encode_card(0, 5)
 
@@ -883,6 +884,460 @@ class TestObservationLayoutMidGame(unittest.TestCase):
             py_flat, vec_flat, decimal=4,
             err_msg="Observation mismatch after bid"
         )
+
+
+class TestHandRemoval(unittest.TestCase):
+    """Test vectorized gather-based hand removal in _handle_play."""
+
+    def _setup_playing_env(self, hand_cards, trump_suit=0):
+        """Create env with one game in PLAYING phase, player 0's hand set to hand_cards."""
+        env = VectorizedPitchEnv(1, torch.device("cpu"))
+        env.done[0] = False
+        env.phase[0] = PHASE_PLAYING
+        env.trump_suit[0] = trump_suit
+        env.current_player[0] = 0
+        env.playing_iterator[0] = 0
+        env.hands[0] = 0
+        for i, c in enumerate(hand_cards):
+            env.hands[0, 0, i] = c
+        return env
+
+    def test_remove_first_slot(self):
+        """Removing slot 0 shifts all cards left."""
+        cards = [encode_card(0, 2), encode_card(0, 3), encode_card(0, 5), 0, 0, 0, 0, 0, 0, 0]
+        env = self._setup_playing_env(cards)
+        env.step(torch.tensor([0], dtype=torch.long))  # play slot 0
+        hand = env.hands[0, 0].tolist()
+        self.assertEqual(hand[0], encode_card(0, 3))
+        self.assertEqual(hand[1], encode_card(0, 5))
+        self.assertEqual(hand[2], 0)
+
+    def test_remove_middle_slot(self):
+        """Removing a middle slot shifts only cards after it."""
+        cards = [encode_card(0, 2), encode_card(0, 3), encode_card(0, 5),
+                 encode_card(0, 7), 0, 0, 0, 0, 0, 0]
+        env = self._setup_playing_env(cards)
+        env.step(torch.tensor([1], dtype=torch.long))  # play slot 1
+        hand = env.hands[0, 0].tolist()
+        self.assertEqual(hand[0], encode_card(0, 2))
+        self.assertEqual(hand[1], encode_card(0, 5))
+        self.assertEqual(hand[2], encode_card(0, 7))
+        self.assertEqual(hand[3], 0)
+
+    def test_remove_last_occupied_slot(self):
+        """Removing the last card leaves all zeros after it."""
+        cards = [encode_card(0, 2), encode_card(0, 3), 0, 0, 0, 0, 0, 0, 0, 0]
+        env = self._setup_playing_env(cards)
+        env.step(torch.tensor([1], dtype=torch.long))  # play slot 1
+        hand = env.hands[0, 0].tolist()
+        self.assertEqual(hand[0], encode_card(0, 2))
+        for i in range(1, 10):
+            self.assertEqual(hand[i], 0)
+
+    def test_remove_single_card(self):
+        """Hand with one card → all empty after removal."""
+        cards = [encode_card(0, 15), 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        env = self._setup_playing_env(cards)
+        env.step(torch.tensor([0], dtype=torch.long))  # play slot 0
+        hand = env.hands[0, 0].tolist()
+        self.assertTrue(all(c == 0 for c in hand))
+
+    def test_remove_from_full_hand(self):
+        """Full 10-card hand, remove slot 5."""
+        cards = [encode_card(0, r) for r in [2, 3, 5, 6, 7, 8, 9, 10, 12, 15]]
+        env = self._setup_playing_env(cards)
+        env.step(torch.tensor([5], dtype=torch.long))  # play slot 5 (rank 8)
+        hand = env.hands[0, 0].tolist()
+        expected = [encode_card(0, r) for r in [2, 3, 5, 6, 7, 9, 10, 12, 15]] + [0]
+        self.assertEqual(hand, expected)
+
+
+class TestNoValidPlayVectorized(unittest.TestCase):
+    """Test the vectorized _handle_no_valid_play path."""
+
+    def test_no_valid_plays_ends_round(self):
+        """When no player has any valid trump card, round should end."""
+        env = VectorizedPitchEnv(1, torch.device("cpu"), win_threshold=54)
+        env.done[0] = False
+        env.phase[0] = PHASE_PLAYING
+        env.trump_suit[0] = 0  # Hearts
+        env.current_player[0] = 0
+        env.playing_iterator[0] = 0
+        env.current_bid[0] = 5
+        env.current_high_bidder[0] = 0
+        # All hands empty → no valid plays
+        env.hands[0] = 0
+        env._create_and_shuffle_decks(torch.ones(1, dtype=torch.bool))
+
+        phase_before = env.phase[0].item()
+        env.step(torch.tensor([23], dtype=torch.long))
+        # Round should have ended → back to bidding
+        self.assertEqual(env.phase[0].item(), PHASE_BIDDING)
+
+    def test_no_valid_play_mid_trick_does_not_end_round(self):
+        """Action 23 mid-trick (playing_iterator > 0) should NOT end round."""
+        env = VectorizedPitchEnv(1, torch.device("cpu"))
+        env.done[0] = False
+        env.phase[0] = PHASE_PLAYING
+        env.trump_suit[0] = 0
+        env.current_player[0] = 1
+        env.playing_iterator[0] = 1  # mid-trick
+        env.hands[0] = 0  # no cards
+        env.current_bid[0] = 5
+        env.current_high_bidder[0] = 0
+
+        env.step(torch.tensor([23], dtype=torch.long))
+        # Should still be in playing phase (round not ended)
+        self.assertEqual(env.phase[0].item(), PHASE_PLAYING)
+
+    def test_has_valid_plays_does_not_end_round(self):
+        """If any player has a valid card, round should not end on action 23."""
+        env = VectorizedPitchEnv(1, torch.device("cpu"))
+        env.done[0] = False
+        env.phase[0] = PHASE_PLAYING
+        env.trump_suit[0] = 0  # Hearts
+        env.current_player[0] = 0
+        env.playing_iterator[0] = 0
+        env.current_bid[0] = 5
+        env.current_high_bidder[0] = 0
+        env.hands[0] = 0
+        # Player 2 has a trump card
+        env.hands[0, 2, 0] = encode_card(0, 5)  # Hearts 5
+        env._create_and_shuffle_decks(torch.ones(1, dtype=torch.bool))
+
+        env.step(torch.tensor([23], dtype=torch.long))
+        # Still playing — round should NOT have ended
+        self.assertEqual(env.phase[0].item(), PHASE_PLAYING)
+
+
+class TestDoubleMoonBid(unittest.TestCase):
+    """Test action 18 (double shoot moon) bidding edge cases."""
+
+    def test_dealer_can_double_moon_after_moon_bid(self):
+        """Dealer should have action 18 available when someone bid moon."""
+        env = VectorizedPitchEnv(1, torch.device("cpu"))
+        env.reset_all()
+        dealer = env.dealer[0].item()
+        # Non-dealer bids moon (action 17)
+        first_bidder = (dealer + 1) % 4
+        env.current_player[0] = first_bidder
+        env._handle_bid(torch.tensor([17], dtype=torch.int8))  # bid moon
+        # Others pass until dealer
+        while env.current_player[0].item() != dealer:
+            env._handle_bid(torch.tensor([10], dtype=torch.int8))  # pass
+        # Now dealer's turn — should be able to double moon
+        mask = env._get_action_mask()[0]
+        self.assertEqual(mask[18].item(), 1, "Dealer should be able to double moon")
+
+    def test_non_dealer_cannot_double_moon(self):
+        """Non-dealer should never have action 18 available."""
+        env = VectorizedPitchEnv(1, torch.device("cpu"))
+        env.reset_all()
+        dealer = env.dealer[0].item()
+        # First player bids moon
+        env._handle_bid(torch.tensor([17], dtype=torch.int8))
+        # Next player — not dealer (unless dealer is player+1, so skip if so)
+        if env.current_player[0].item() != dealer:
+            mask = env._get_action_mask()[0]
+            self.assertEqual(mask[18].item(), 0,
+                             "Non-dealer should not be able to double moon")
+
+    def test_double_moon_sets_bid_12(self):
+        """Action 18 should set current_bid to 12."""
+        env = VectorizedPitchEnv(1, torch.device("cpu"))
+        env.reset_all()
+        dealer = env.dealer[0].item()
+        # Get to dealer with moon bid
+        first_bidder = (dealer + 1) % 4
+        env.current_player[0] = first_bidder
+        env._handle_bid(torch.tensor([17], dtype=torch.int8))
+        while env.current_player[0].item() != dealer:
+            env._handle_bid(torch.tensor([10], dtype=torch.int8))
+        # Dealer doubles
+        env._handle_bid(torch.tensor([18], dtype=torch.int8))
+        self.assertEqual(env.current_bid[0].item(), 12)
+        self.assertEqual(env.phase[0].item(), PHASE_CHOOSESUIT)
+
+
+class TestPERBufferPreAllocated(unittest.TestCase):
+    """Test the pre-allocated PrioritizedReplayBuffer."""
+
+    def test_add_and_sample_roundtrip(self):
+        """Added transitions should be retrievable via sample."""
+        from train import PrioritizedReplayBuffer
+        buf = PrioritizedReplayBuffer(capacity=100, obs_dim=4, alpha=0.6)
+        state = np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32)
+        next_state = np.array([5.0, 6.0, 7.0, 8.0], dtype=np.float32)
+        buf.add(state, 2, 1.5, next_state, False)
+        buf.add(state * 2, 3, -1.0, next_state * 2, True)
+
+        self.assertEqual(buf.size, 2)
+        states, actions, rewards, next_states, dones, indices, weights = buf.sample(2, beta=0.4)
+        self.assertEqual(states.shape, (2, 4))
+        self.assertEqual(actions.shape, (2,))
+        # All sampled actions should be 2 or 3
+        self.assertTrue(set(actions.tolist()).issubset({2, 3}))
+
+    def test_circular_overwrite(self):
+        """Buffer should overwrite oldest entries when full."""
+        from train import PrioritizedReplayBuffer
+        buf = PrioritizedReplayBuffer(capacity=3, obs_dim=2, alpha=0.6)
+        for i in range(5):
+            buf.add(np.array([float(i), 0.0]), i, 0.0, np.array([0.0, 0.0]), False)
+        self.assertEqual(buf.size, 3)
+        # Oldest entries (0, 1) should be overwritten by (3, 4)
+        # Positions: 0→3, 1→4, 2→2
+        self.assertEqual(buf.actions[0], 3)
+        self.assertEqual(buf.actions[1], 4)
+        self.assertEqual(buf.actions[2], 2)
+
+    def test_sample_returns_copies(self):
+        """Sampled arrays should be independent copies, not views."""
+        from train import PrioritizedReplayBuffer
+        buf = PrioritizedReplayBuffer(capacity=10, obs_dim=4, alpha=0.6)
+        for i in range(5):
+            buf.add(np.ones(4) * i, i, 0.0, np.zeros(4), False)
+        states, *_ = buf.sample(3, beta=0.4)
+        # Mutating the sample should not affect the buffer
+        states[:] = 999.0
+        self.assertFalse(np.any(buf.states == 999.0))
+
+    def test_priority_update(self):
+        """update_priorities should change sampling distribution."""
+        from train import PrioritizedReplayBuffer
+        buf = PrioritizedReplayBuffer(capacity=100, obs_dim=2, alpha=0.6)
+        for i in range(10):
+            buf.add(np.array([float(i), 0.0]), i, 0.0, np.zeros(2), False)
+        # Get initial indices
+        _, _, _, _, _, indices, _ = buf.sample(5, beta=0.4)
+        # Boost priority of one entry
+        td_errors = np.zeros(5)
+        td_errors[0] = 100.0  # huge error → high priority
+        buf.update_priorities(indices, td_errors)
+        # That entry's priority should now be high in the tree
+        boosted_idx = indices[0]
+        self.assertGreater(buf.tree.tree[boosted_idx], 1.0)
+
+
+class TestTrickScoringEdgeCases(unittest.TestCase):
+    """Test trick scoring for point cards, off-jack, and edge cases."""
+
+    def _setup_trick(self, trump_suit=0):
+        env = VectorizedPitchEnv(1, torch.device("cpu"))
+        env.done[0] = False
+        env.phase[0] = PHASE_PLAYING
+        env.trump_suit[0] = trump_suit
+        env.current_player[0] = 0
+        env.playing_iterator[0] = 0
+        env.scores[0] = 0
+        env.round_scores[0] = 0
+        return env
+
+    def test_three_of_trump_scores_3_points(self):
+        """3-of-trump is worth 3 points (highest single-card value)."""
+        env = self._setup_trick(trump_suit=0)
+        env.hands[0, 0, 0] = encode_card(0, 15)  # Ace (1pt, wins)
+        env.hands[0, 1, 0] = encode_card(0, 3)   # Three (3pt)
+        env.hands[0, 2, 0] = encode_card(0, 5)   # 5 (0pt)
+        env.hands[0, 3, 0] = encode_card(0, 6)   # 6 (0pt)
+
+        for _ in range(4):
+            env.step(torch.tensor([0], dtype=torch.long))
+
+        self.assertEqual(env.trick_winner[0].item(), 0)  # Ace wins
+        # Team 0 (trick winner): Ace(1) + Three(3) = 4 points
+        self.assertEqual(env.round_scores[0, 0].item(), 4)
+
+    def test_all_point_cards_in_one_trick(self):
+        """Ace + Jack + 10 + 3 = 1+1+1+3 = 6 points in one trick."""
+        env = self._setup_trick(trump_suit=0)
+        env.hands[0, 0, 0] = encode_card(0, 15)  # Ace (1pt)
+        env.hands[0, 1, 0] = encode_card(0, 12)  # Jack (1pt)
+        env.hands[0, 2, 0] = encode_card(0, 10)  # Ten (1pt)
+        env.hands[0, 3, 0] = encode_card(0, 3)   # Three (3pt)
+
+        for _ in range(4):
+            env.step(torch.tensor([0], dtype=torch.long))
+
+        self.assertEqual(env.trick_winner[0].item(), 0)  # Ace wins
+        # All points to team 0 (Ace's team): 1+1+1+3 = 6
+        self.assertEqual(env.round_scores[0, 0].item(), 6)
+
+    def test_off_jack_point_goes_to_trick_winner(self):
+        """Off-jack (rank 12) scores 1 point for trick winner's team."""
+        env = self._setup_trick(trump_suit=0)  # Hearts trump
+        # Off-jack = Diamonds Jack (suit 1, rank 12)
+        env.hands[0, 0, 0] = encode_card(0, 15)  # Hearts Ace (wins, 1pt)
+        env.hands[0, 1, 0] = encode_card(1, 12)  # Off-jack (1pt)
+        env.hands[0, 2, 0] = encode_card(0, 5)   # 5 (0pt)
+        env.hands[0, 3, 0] = encode_card(0, 6)   # 6 (0pt)
+
+        for _ in range(4):
+            env.step(torch.tensor([0], dtype=torch.long))
+
+        self.assertEqual(env.trick_winner[0].item(), 0)  # Ace wins
+        # Ace(1) + off-jack(1) = 2 points to team 0
+        self.assertEqual(env.round_scores[0, 0].item(), 2)
+
+    def test_two_of_trump_and_three_split_scoring(self):
+        """2-of-trump goes to player's team, 3-of-trump goes to trick winner."""
+        env = self._setup_trick(trump_suit=0)
+        # Player 1 (team 1) plays 2-of-trump, Player 0 (team 0) plays Ace and wins
+        env.hands[0, 0, 0] = encode_card(0, 15)  # Ace (1pt, wins)
+        env.hands[0, 1, 0] = encode_card(0, 2)   # Two (1pt → team 1)
+        env.hands[0, 2, 0] = encode_card(0, 3)   # Three (3pt → trick winner)
+        env.hands[0, 3, 0] = encode_card(0, 5)   # 5 (0pt)
+
+        for _ in range(4):
+            env.step(torch.tensor([0], dtype=torch.long))
+
+        # Team 0 (winner): Ace(1) + Three(3) = 4
+        # Team 1 (played 2): Two(1) = 1
+        self.assertEqual(env.round_scores[0, 0].item(), 4)
+        self.assertEqual(env.round_scores[0, 1].item(), 1)
+
+    def test_trick_leader_after_resolution(self):
+        """After trick resolves, current_player should be (winner + 1) % 4."""
+        env = self._setup_trick(trump_suit=0)
+        env.hands[0, 0, 0] = encode_card(0, 5)
+        env.hands[0, 1, 0] = encode_card(0, 6)
+        env.hands[0, 2, 0] = encode_card(0, 15)  # Ace → player 2 wins
+        env.hands[0, 3, 0] = encode_card(0, 7)
+
+        for _ in range(4):
+            env.step(torch.tensor([0], dtype=torch.long))
+
+        self.assertEqual(env.trick_winner[0].item(), 2)
+        # Next leader = (winner + 1) % 4 = 3
+        self.assertEqual(env.current_player[0].item(), 3)
+
+    def test_two_jokers_in_trick(self):
+        """Two jokers: first played should win (argmax picks lowest index on tie)."""
+        env = self._setup_trick(trump_suit=0)
+        env.hands[0, 0, 0] = JOKER_CODE  # Joker (rank 11, 1pt)
+        env.hands[0, 1, 0] = encode_card(0, 5)   # 5 (0pt)
+        env.hands[0, 2, 0] = JOKER_CODE  # Joker (rank 11, 1pt)
+        env.hands[0, 3, 0] = encode_card(0, 6)   # 6 (0pt)
+
+        for _ in range(4):
+            env.step(torch.tensor([0], dtype=torch.long))
+
+        # First joker (player 0, trick position 0) wins ties via argmax
+        self.assertEqual(env.trick_winner[0].item(), 0)
+        # Both jokers = 2pt to winning team (team 0)
+        self.assertEqual(env.round_scores[0, 0].item(), 2)
+
+    def test_partial_action23_trick(self):
+        """1 real card + 3 action-23: real card should win the trick."""
+        env = self._setup_trick(trump_suit=0)
+        # Only player 0 has a card, players 1-3 have no valid cards
+        env.hands[0, 0, 0] = encode_card(0, 15)  # Ace (1pt)
+        env.hands[0, 1, 0] = 0
+        env.hands[0, 2, 0] = 0
+        env.hands[0, 3, 0] = 0
+        # Give players 1-3 non-trump cards so _handle_no_valid_play doesn't end the round
+        # (they have cards, just not valid ones for the mask)
+        env.hands[0, 1, 1] = encode_card(2, 5)  # Clubs 5 (non-trump)
+        env.hands[0, 2, 1] = encode_card(2, 6)
+        env.hands[0, 3, 1] = encode_card(2, 7)
+
+        # Player 0 plays card, players 1-3 play action 23
+        env.step(torch.tensor([0], dtype=torch.long))  # player 0 plays Ace
+        env.step(torch.tensor([23], dtype=torch.long))  # player 1 no valid
+        env.step(torch.tensor([23], dtype=torch.long))  # player 2 no valid
+        env.step(torch.tensor([23], dtype=torch.long))  # player 3 no valid
+
+        # Player 0 (Ace) should win
+        self.assertEqual(env.trick_winner[0].item(), 0)
+        self.assertEqual(env.round_scores[0, 0].item(), 1)  # Ace = 1pt
+
+
+class TestGameEndTiebreak(unittest.TestCase):
+    """Test game-end conditions when both teams are at/above threshold."""
+
+    def _setup_end(self, scores, bidder, threshold=54):
+        env = VectorizedPitchEnv(1, torch.device("cpu"), win_threshold=threshold)
+        env.done[0] = False
+        env.scores[0, 0] = scores[0]
+        env.scores[0, 1] = scores[1]
+        env.current_high_bidder[0] = bidder
+        env.num_rounds_played[0] = 0
+        return env
+
+    def test_both_at_threshold_bidder_wins(self):
+        """When both teams >= threshold, bidder's team wins."""
+        env = self._setup_end(scores=[55, 56], bidder=0, threshold=54)
+        mask = torch.ones(1, dtype=torch.bool)
+        env._check_game_end(mask)
+        self.assertTrue(env.done[0].item())
+
+    def test_both_at_threshold_non_bidder_loses(self):
+        """Non-bidder team at threshold with bidder team below should not end game."""
+        # Team 1 at threshold, but bidder is player 0 (team 0) who is below
+        env = self._setup_end(scores=[40, 56], bidder=0, threshold=54)
+        mask = torch.ones(1, dtype=torch.bool)
+        env._check_game_end(mask)
+        # score diff = 16 < 54, team 0 not at threshold, team 1 at threshold but not bidder
+        self.assertFalse(env.done[0].item())
+
+    def test_negative_score_difference_ends_game(self):
+        """Large negative score difference (one team far behind) triggers end."""
+        env = self._setup_end(scores=[-20, 40], bidder=1, threshold=54)
+        mask = torch.ones(1, dtype=torch.bool)
+        env._check_game_end(mask)
+        # diff = |(-20) - 40| = 60 >= 54
+        self.assertTrue(env.done[0].item())
+
+
+class TestPERBoundary(unittest.TestCase):
+    """Test PER sampling at exact buffer capacity boundaries."""
+
+    def test_sample_at_exact_batch_size(self):
+        """Sampling when size == batch_size should not crash or return index 0 for all."""
+        from train import PrioritizedReplayBuffer
+        buf = PrioritizedReplayBuffer(capacity=100, obs_dim=4, alpha=0.6)
+        batch_size = 8
+        for i in range(batch_size):
+            buf.add(np.ones(4) * i, i, float(i), np.zeros(4), False)
+        self.assertEqual(buf.size, batch_size)
+        states, actions, rewards, _, _, indices, weights = buf.sample(batch_size, beta=0.4)
+        # Should not all be the same index
+        self.assertGreater(len(set(actions.tolist())), 1,
+                           "All samples collapsed to same entry")
+
+    def test_sample_single_entry(self):
+        """Sampling from buffer with only 1 entry should return that entry."""
+        from train import PrioritizedReplayBuffer
+        buf = PrioritizedReplayBuffer(capacity=100, obs_dim=2, alpha=0.6)
+        buf.add(np.array([42.0, 99.0]), 7, 3.14, np.array([1.0, 2.0]), True)
+        states, actions, rewards, next_states, dones, _, _ = buf.sample(4, beta=0.4)
+        # All 4 samples should be the same single entry
+        self.assertTrue(np.all(actions == 7))
+        self.assertTrue(np.all(np.isclose(rewards, 3.14)))
+        self.assertTrue(np.all(dones))
+
+
+class TestActionMaskAllPhases(unittest.TestCase):
+    """Test that action masks never produce all-zeros for active games."""
+
+    def test_mask_never_all_zero_during_full_game(self):
+        """Play 50 random games, verify mask always has at least one valid action."""
+        for seed in range(50):
+            env = VectorizedPitchEnv(1, torch.device("cpu"))
+            env.reset_all()
+            rng = np.random.RandomState(seed)
+            for step in range(2000):
+                if env.done[0].item():
+                    break
+                mask = env._get_action_mask()[0].numpy()
+                valid = np.where(mask == 1)[0]
+                self.assertGreater(
+                    len(valid), 0,
+                    f"All-zero mask at seed={seed} step={step} "
+                    f"phase={env.phase[0].item()} player={env.current_player[0].item()}"
+                )
+                action = int(rng.choice(valid))
+                env.step(torch.tensor([action], dtype=torch.long))
 
 
 if __name__ == "__main__":

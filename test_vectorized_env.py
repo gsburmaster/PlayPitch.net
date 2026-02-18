@@ -278,7 +278,8 @@ class TestObservationLayout(unittest.TestCase):
         py_obs = py_env._get_observation()
         py_flat = flatten_observation(py_obs)
 
-        vec_flat = vec_env.get_observations()[0].numpy()
+        vec_obs, _ = vec_env.get_observations()
+        vec_flat = vec_obs[0].numpy()
 
         self.assertEqual(len(py_flat), len(vec_flat),
                          f"Length mismatch: py={len(py_flat)} vec={len(vec_flat)}")
@@ -878,7 +879,8 @@ class TestObservationLayoutMidGame(unittest.TestCase):
 
         # Sync and compare observations
         py_flat = flatten_observation(py_obs)
-        vec_flat = vec_env.get_observations()[0].numpy()
+        vec_obs, _ = vec_env.get_observations()
+        vec_flat = vec_obs[0].numpy()
 
         np.testing.assert_array_almost_equal(
             py_flat, vec_flat, decimal=4,
@@ -1338,6 +1340,34 @@ class TestActionMaskAllPhases(unittest.TestCase):
                 )
                 action = int(rng.choice(valid))
                 env.step(torch.tensor([action], dtype=torch.long))
+
+
+class TestGetObservationsReturnsTuple(unittest.TestCase):
+    """Test that get_observations returns (obs, masks) tuple."""
+
+    def test_return_shape_and_content(self):
+        """get_observations returns (obs, masks) with correct shapes."""
+        env = VectorizedPitchEnv(4, torch.device("cpu"))
+        env.reset_all()
+        obs, masks = env.get_observations()
+        self.assertEqual(obs.shape, (4, 119))
+        self.assertEqual(masks.shape, (4, 24))
+        # Masks should be int8 (raw action mask)
+        self.assertEqual(masks.dtype, torch.int8)
+        # Masks should match a separate _get_action_mask call
+        masks_direct = env._get_action_mask()
+        torch.testing.assert_close(masks, masks_direct)
+
+    def test_obs_contains_mask_values(self):
+        """The last 24 values of obs should match the returned masks."""
+        env = VectorizedPitchEnv(2, torch.device("cpu"))
+        env.reset_all()
+        obs, masks = env.get_observations()
+        # Last 24 columns of obs are the float mask
+        obs_mask = obs[:, -24:]
+        np.testing.assert_array_almost_equal(
+            obs_mask.numpy(), masks.float().numpy(), decimal=4
+        )
 
 
 if __name__ == "__main__":

@@ -191,6 +191,19 @@ class SumTree:
         self.write_pos = (self.write_pos + 1) % self.capacity
         self.size = min(self.size + 1, self.capacity)
 
+    def add_batch(self, count: int, priority: float):
+        """Add `count` items all with the same priority. Stores write_pos as data."""
+        for i in range(count):
+            idx = self.write_pos + self.capacity - 1
+            self.data[self.write_pos] = self.write_pos
+            change = priority - self.tree[idx]
+            self.tree[idx] = priority
+            self._propagate(idx, change)
+            self.write_pos = (self.write_pos + 1) % self.capacity
+            self.size = min(self.size + 1, self.capacity)
+        if priority > self._max_priority:
+            self._max_priority = priority
+
     def update(self, idx: int, priority: float):
         change = priority - self.tree[idx]
         self.tree[idx] = priority
@@ -234,6 +247,23 @@ class PrioritizedReplayBuffer:
         if priority == 0:
             priority = 1.0
         self.tree.add(priority, pos)
+
+    def add_batch(self, states, actions, rewards, next_states, dones):
+        """Add K transitions in batch. All inputs are numpy arrays."""
+        K = len(states)
+        if K == 0:
+            return
+        priority = max(self.tree.max_priority, 1.0)
+        # Compute write positions (handles wrap-around via modular arithmetic)
+        positions = (np.arange(K) + self.tree.write_pos) % self.capacity
+        # Batch copy into pre-allocated arrays
+        self.states[positions] = states
+        self.actions[positions] = actions
+        self.rewards[positions] = rewards
+        self.next_states[positions] = next_states
+        self.dones[positions] = dones
+        # Update SumTree (loops internally for tree structure)
+        self.tree.add_batch(K, priority)
 
     def sample(self, batch_size: int, beta: float = 0.4):
         indices = []
@@ -1403,8 +1433,7 @@ def train_vectorized(config: TrainingConfig):
             env.reset_done()
 
         # --- Get observations and masks ---
-        obs = env.get_observations()  # (N, 119) on device
-        masks = env._get_action_mask()  # (N, 24) on device
+        obs, masks = env.get_observations()  # (N, 119), (N, 24) on device
 
         # --- Batched inference by team ---
         acting_team = (env.current_player % 2).long()  # (N,)
@@ -1436,11 +1465,8 @@ def train_vectorized(config: TrainingConfig):
                 # Epsilon-greedy
                 explore = torch.rand(exploit_mask.sum().item(), device=device) < acting_agent.epsilon
                 greedy_actions = q_values.argmax(dim=1)
-                # Random valid actions for exploration
-                rand_actions = torch.zeros_like(greedy_actions)
-                for j in range(len(rand_actions)):
-                    valid = torch.where(team_masks[exploit_mask][j] == 1)[0]
-                    rand_actions[j] = valid[torch.randint(len(valid), (1,))]
+                # Random valid actions for exploration (vectorized)
+                rand_actions = torch.multinomial(team_masks[exploit_mask], 1).squeeze(1)
                 team_actions_exploit = torch.where(explore, rand_actions, greedy_actions)
 
                 # Scatter back
@@ -1448,25 +1474,22 @@ def train_vectorized(config: TrainingConfig):
                 exploit_indices = team_indices[exploit_mask]
                 actions[exploit_indices] = team_actions_exploit
 
-            # Noisy: random valid actions
+            # Noisy: random valid actions (vectorized)
             if is_noisy.any():
                 team_indices = torch.where(team_mask)[0]
                 noisy_indices = team_indices[is_noisy]
-                for j, gi in enumerate(noisy_indices):
-                    noisy_sub_idx = torch.where(is_noisy)[0][j]
-                    valid = torch.where(team_masks[noisy_sub_idx] == 1)[0]
-                    actions[gi] = valid[torch.randint(len(valid), (1,))]
+                noisy_actions = torch.multinomial(team_masks[is_noisy], 1).squeeze(1)
+                actions[noisy_indices] = noisy_actions
 
         # --- Step the vectorized env ---
-        prev_obs = obs.clone()
-        phase_before = env.phase.clone()
+        prev_obs = obs  # already a fresh tensor from get_observations() torch.cat
+        was_bidding = (env.phase == 0)  # PHASE_BIDDING — bool tensor, no clone needed
         next_obs, rewards, dones = env.step(actions)
 
         # Apply reward scaling + bid bonus shaping
         rewards = rewards * config.reward_scale
 
         # Bid quality bonus (matches PitchEnvWrapper logic)
-        was_bidding = phase_before == 0  # PHASE_BIDDING
         made_bid = was_bidding & (actions >= 11) & (actions <= 18)
         if made_bid.any():
             bid_amount = (actions[made_bid] - 6).long()
@@ -1480,7 +1503,6 @@ def train_vectorized(config: TrainingConfig):
                 torch.where(risky_bid,
                              torch.tensor(-config.bid_bonus * config.reward_scale, device=device),
                              torch.tensor(0.0, device=device)))
-
 
         # Accumulate episode rewards (for team 0 acting games)
         team0_acting = (acting_team == 0) & ~just_done
@@ -1498,15 +1520,22 @@ def train_vectorized(config: TrainingConfig):
                 continue
             acting_agent = agent if team_id == 0 else agent_opp
 
-            # .copy() breaks reference chain: numpy view → CPU tensor → GPU tensor
-            s = prev_obs[team_active].cpu().numpy().copy()
-            a = actions[team_active].cpu().numpy().copy()
-            r = rewards[team_active].cpu().numpy().copy()
-            ns = next_obs[team_active].cpu().numpy().copy()
-            d = dones[team_active].cpu().numpy().copy()
+            # Single D2H transfer: concatenate on-device, transfer once, split on CPU
+            bundle = torch.cat([
+                prev_obs[team_active],                         # (K, 119)
+                actions[team_active].unsqueeze(1).float(),     # (K, 1)
+                rewards[team_active].unsqueeze(1),             # (K, 1)
+                next_obs[team_active],                         # (K, 119)
+                dones[team_active].unsqueeze(1).float(),       # (K, 1)
+            ], dim=1).cpu().numpy().copy()                     # (K, 241)
 
-            for j in range(len(s)):
-                acting_agent.remember(s[j], a[j], r[j], ns[j], d[j])
+            s = bundle[:, :119]
+            a = bundle[:, 119].astype(np.int64)
+            r = bundle[:, 120]
+            ns = bundle[:, 121:240]
+            d = bundle[:, 240].astype(bool)
+
+            acting_agent.buffer.add_batch(s, a, r, ns, d)
 
         global_step += N
 

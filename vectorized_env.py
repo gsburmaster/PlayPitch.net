@@ -123,7 +123,8 @@ class VectorizedPitchEnv:
         """Reset all N games. Returns initial observations (N, obs_dim)."""
         mask = torch.ones(self.N, dtype=torch.bool, device=self.device)
         self._reset_games(mask)
-        return self.get_observations()
+        obs, _ = self.get_observations()
+        return obs
 
     def reset_done(self):
         """Reset only games that are done."""
@@ -435,10 +436,11 @@ class VectorizedPitchEnv:
         pct_flat = self.player_cards_taken.float()
 
         # Action mask: (N, 24)
-        mask_flat = self._get_action_mask().float()
+        mask = self._get_action_mask()
+        mask_flat = mask.float()
 
         # Concatenate in dict iteration order matching flatten_observation
-        return torch.cat([
+        obs = torch.cat([
             hand_flat,           # 20
             pc_flat,             # 48
             scores_flat,         # 2
@@ -448,6 +450,7 @@ class VectorizedPitchEnv:
             pct_flat,            # 4
             mask_flat,           # 24
         ], dim=1)  # (N, 119)
+        return obs, mask
 
     # ------------------------------------------------------------------
     # Phase handlers
@@ -980,6 +983,6 @@ class VectorizedPitchEnv:
 
         # Build outputs
         rewards = self._calculate_rewards(team)
-        obs = self.get_observations()
+        obs, _ = self.get_observations()
 
         return obs, rewards, self.done.clone()

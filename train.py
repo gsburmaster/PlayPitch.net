@@ -85,7 +85,6 @@ All config fields in config.py can be overridden via --flag value on the
 command line. Run `python train.py --help` for the full list.
 """
 
-import copy
 import math
 import os
 import random
@@ -132,13 +131,17 @@ def get_device(config: TrainingConfig) -> torch.device:
 # ---------------------------------------------------------------------------
 
 def flatten_observation(obs: Dict) -> np.ndarray:
-    flattened = []
-    for key, value in obs.items():
+    out = np.empty(119, dtype=np.float32)
+    i = 0
+    for value in obs.values():
         if isinstance(value, np.ndarray):
-            flattened.extend(value.flatten())
+            n = value.size
+            out[i:i + n] = value.ravel()
+            i += n
         elif isinstance(value, (int, np.integer)):
-            flattened.append(value)
-    return np.array(flattened, dtype=np.float32)
+            out[i] = value
+            i += 1
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -155,12 +158,12 @@ class SumTree:
         self.data = [None] * capacity
         self.write_pos = 0
         self.size = 0
+        self._max_priority = 1.0
 
     def _propagate(self, idx: int, change: float):
         while idx != 0:
-            parent = (idx - 1) // 2
-            self.tree[parent] += change
-            idx = parent
+            idx = (idx - 1) // 2
+            self.tree[idx] += change
 
     def _retrieve(self, idx: int, s: float) -> int:
         while True:
@@ -179,11 +182,7 @@ class SumTree:
 
     @property
     def max_priority(self) -> float:
-        leaf_start = self.capacity - 1
-        end = leaf_start + self.size
-        if self.size == 0:
-            return 1.0
-        return float(np.max(self.tree[leaf_start:end]))
+        return self._max_priority if self.size > 0 else 1.0
 
     def add(self, priority: float, data):
         idx = self.write_pos + self.capacity - 1
@@ -196,6 +195,8 @@ class SumTree:
         change = priority - self.tree[idx]
         self.tree[idx] = priority
         self._propagate(idx, change)
+        if priority > self._max_priority:
+            self._max_priority = priority
 
     def get(self, s: float) -> Tuple[int, float, object]:
         idx = self._retrieve(0, s)
@@ -214,28 +215,37 @@ class PrioritizedReplayBuffer:
         self.min_priority = 1e-6
 
     def add(self, state, action, reward, next_state, done):
+        # max_priority is already in tree-space (p^alpha); use it directly
         priority = self.tree.max_priority
         if priority == 0:
             priority = 1.0
-        self.tree.add(priority ** self.alpha, (state, action, reward, next_state, done))
+        self.tree.add(priority, (state, action, reward, next_state, done))
 
     def sample(self, batch_size: int, beta: float = 0.4):
         indices = []
         priorities = []
         samples = []
-        segment = self.tree.total / batch_size
+        total = self.tree.total
+        segment = total / batch_size
 
         for i in range(batch_size):
             lo = segment * i
             hi = segment * (i + 1)
             s = np.random.uniform(lo, hi)
+            # Clamp to valid range — float arithmetic can exceed total
+            s = min(s, total - 1e-8)
             idx, priority, data = self.tree.get(s)
             if data is None:
-                # Fallback: sample again from the full range
-                s = np.random.uniform(0, self.tree.total)
+                # Fallback: sample from safe range
+                s = np.random.uniform(0, total - 1e-8)
                 idx, priority, data = self.tree.get(s)
+            if data is None:
+                # Last resort: use the first valid leaf
+                idx = self.tree.capacity - 1
+                priority = self.tree.tree[idx]
+                data = self.tree.data[0]
             indices.append(idx)
-            priorities.append(priority)
+            priorities.append(max(priority, 1e-8))
             samples.append(data)
 
         total = self.tree.total
@@ -418,9 +428,9 @@ class Agent:
         # Update priorities
         self.buffer.update_priorities(indices, td_errors.detach().cpu().numpy())
 
-        # Soft target update
+        # Soft target update (in-place to avoid intermediate tensor allocations)
         for target_param, param in zip(self.target_network.parameters(), self.q_network.parameters()):
-            target_param.data.copy_(self.config.tau * param.data + (1.0 - self.config.tau) * target_param.data)
+            target_param.data.mul_(1.0 - self.config.tau).add_(param.data, alpha=self.config.tau)
 
         return {
             "loss": loss.item(),
@@ -589,7 +599,7 @@ class OpponentPool:
         self.pool: List[Dict] = []  # list of {"weights": state_dict, "elo": float}
 
     def add_snapshot(self, state_dict: dict, elo: float = 1000.0):
-        entry = {"weights": copy.deepcopy(state_dict), "elo": elo}
+        entry = {"weights": {k: v.cpu().clone() for k, v in state_dict.items()}, "elo": elo}
         self.pool.append(entry)
         if len(self.pool) > self.max_size:
             self.pool.pop(0)  # FIFO

@@ -3,7 +3,7 @@ WORKDIR /app
 
 # Install all dependencies (including devDeps for tsc)
 COPY webserver/package.json webserver/package-lock.json* ./webserver/
-RUN cd webserver && npm install --ignore-scripts && npm rebuild onnxruntime-node
+RUN cd webserver && npm install --ignore-scripts && ONNXRUNTIME_NODE_INSTALL=skip npm rebuild onnxruntime-node
 
 # Copy webserver source and compile TypeScript
 COPY webserver/ ./webserver/

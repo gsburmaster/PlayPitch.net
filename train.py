@@ -85,10 +85,13 @@ All config fields in config.py can be overridden via --flag value on the
 command line. Run `python train.py --help` for the full list.
 """
 
+import faulthandler
 import math
 import os
 import random
 import time
+
+faulthandler.enable()
 from collections import deque
 from typing import Dict, List, Optional, Tuple
 
@@ -1476,9 +1479,11 @@ def train_vectorized(config: TrainingConfig):
         episode_rewards[team0_acting] += pending_rewards[team0_acting, 0]
 
         # --- Store transitions in replay buffer (CPU transfer) ---
-        # Sync MPS before CPU transfer to prevent async memory corruption
+        # Sync GPU before CPU transfer to prevent async memory corruption
         if device.type == 'mps':
             torch.mps.synchronize()
+        elif device.type == 'cuda':
+            torch.cuda.synchronize()
 
         active = ~just_done
         for team_id in [0, 1]:
@@ -1488,7 +1493,7 @@ def train_vectorized(config: TrainingConfig):
             acting_agent = agent if team_id == 0 else agent_opp
 
             # Use accumulated pending rewards for this team, then reset
-            team_rewards = pending_rewards[:, team_id]
+            team_rewards = pending_rewards[:, team_id].contiguous()
 
             # Single D2H transfer: concatenate on-device, transfer once, split on CPU
             bundle = torch.cat([

@@ -3,16 +3,17 @@ import { bidDisplay } from "../../types";
 
 interface RoundSummaryOverlayProps {
   data: RoundEndData;
+  onDismiss?: () => void;
 }
 
-export default function RoundSummaryOverlay({ data }: RoundSummaryOverlayProps) {
+export default function RoundSummaryOverlay({ data, onDismiss }: RoundSummaryOverlayProps) {
   const bidderTeamName = data.bidderTeam === 0 ? "Team A" : "Team B";
   const otherTeamName = data.bidderTeam === 0 ? "Team B" : "Team A";
   const otherTeam = 1 - data.bidderTeam;
 
   return (
-    <div className="game-overlay overlay-anim">
-      <div className="overlay-content overlay-content-anim text-center">
+    <div className="game-overlay overlay-anim" onClick={onDismiss} style={{ cursor: onDismiss ? "pointer" : undefined }}>
+      <div className="overlay-content overlay-content-anim text-center" onClick={(e) => e.stopPropagation()}>
         <h3>Round Over!</h3>
         <p>
           {bidderTeamName} took {data.roundScores[data.bidderTeam]} points (Bid: {bidDisplay(data.bidAmount)})
@@ -31,6 +32,9 @@ export default function RoundSummaryOverlay({ data }: RoundSummaryOverlayProps) 
         <p>
           <strong>Scores: Team A {data.totalScores[0]} | Team B {data.totalScores[1]}</strong>
         </p>
+        {onDismiss && (
+          <p style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.8rem", marginBottom: 0 }}>Click anywhere to dismiss</p>
+        )}
       </div>
     </div>
   );

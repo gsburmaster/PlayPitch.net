@@ -40,7 +40,7 @@ export default function HandDisplay({ cards, faceUp, actionMask, isMyTurn, phase
         <div className="d-flex align-items-center gap-1">
           <Card faceUp={false} />
           {cards.length > 1 && (
-            <span className="badge bg-dark">{cards.length}</span>
+            <span className="badge bg-secondary">{cards.length}</span>
           )}
         </div>
       </div>

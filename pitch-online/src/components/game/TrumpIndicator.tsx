@@ -28,7 +28,9 @@ export default function TrumpIndicator({ trumpSuit }: TrumpIndicatorProps) {
   }
 
   const symbol = getSuitSymbol(trumpSuit);
-  const color = getCardColor(trumpSuit);
+  const rawColor = getCardColor(trumpSuit);
+  // "black" is invisible on the dark topbar — use light gray instead
+  const color = rawColor === "black" ? "#ccc" : rawColor;
 
   return (
     <div style={{ fontSize: "0.85rem", color: "white" }}>

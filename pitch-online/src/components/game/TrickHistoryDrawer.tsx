@@ -36,6 +36,7 @@ export default function TrickHistoryDrawer({ trickHistory, localSeat, seatNames 
             <button
               onClick={() => setOpen(false)}
               className="drawer-close"
+              aria-label="Close"
             >
               ×
             </button>

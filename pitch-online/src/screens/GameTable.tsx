@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAppState } from "../contexts/AppContext";
 import { useGameState } from "../contexts/GameContext";
 import { useWebSocket } from "../hooks/useWebSocket";
@@ -22,6 +22,9 @@ export default function GameTable() {
   const game = useGameState();
   const { sendAction, playAgain, leaveRoom, reconnect } = useWebSocket();
   const [showRules, setShowRules] = useState(false);
+  const [roundDismissed, setRoundDismissed] = useState(false);
+
+  useEffect(() => { setRoundDismissed(false); }, [game.roundEndData]);
 
   if (localSeat === null) return null;
 
@@ -174,7 +177,9 @@ export default function GameTable() {
 
       {/* Overlays */}
       <DisconnectedOverlay onReconnect={reconnect} />
-      {game.roundEndData && <RoundSummaryOverlay data={game.roundEndData} />}
+      {game.roundEndData && !roundDismissed && (
+        <RoundSummaryOverlay data={game.roundEndData} onDismiss={() => setRoundDismissed(true)} />
+      )}
       {game.gameOverData && (
         <GameOverOverlay
           data={game.gameOverData}
@@ -184,7 +189,7 @@ export default function GameTable() {
         />
       )}
 
-      <button className="rules-btn" onClick={() => setShowRules(true)} title="How to Play">?</button>
+      <button className="rules-btn" onClick={() => setShowRules(true)} title="How to Play" aria-label="How to Play">?</button>
       <HowToPlayModal show={showRules} onClose={() => setShowRules(false)} />
     </div>
   );

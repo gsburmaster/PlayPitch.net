@@ -15,6 +15,7 @@ export default function MuteButton() {
     <button
       onClick={toggle}
       title={muted ? "Unmute" : "Mute"}
+      aria-label={muted ? "Unmute" : "Mute"}
       className="mute-btn"
     >
       {muted ? "\uD83D\uDD07" : "\uD83D\uDD0A"}

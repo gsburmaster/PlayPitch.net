@@ -36,7 +36,7 @@ export default function CreateGameModal({ show, onBack, onCreate, loading }: Cre
       </Modal.Header>
       <Modal.Body>
         <label className="form-label d-block mb-2">Arrange seats</label>
-        <p className="text-muted small mb-3">Click a seat to toggle between AI and open (for another player). Teammates sit across from each other.</p>
+        <p className="lobby-muted small mb-3">Click a seat to toggle between AI and open (for another player). Teammates sit across from each other.</p>
         <div className="d-flex flex-column align-items-center gap-2 mb-3">
           {/* Top seat: seat 2 (Team A — your teammate) */}
           <SeatButton seat={2} isAI={seatIsAI[2]} team={TEAM_LABELS[2]} position={POSITIONS[2]} onClick={toggleSeat} />
@@ -48,10 +48,10 @@ export default function CreateGameModal({ show, onBack, onCreate, loading }: Cre
           {/* Bottom seat: seat 0 (you) — not toggleable */}
           <div className="rounded seat-btn seat-btn--you">
             <div><strong>You</strong></div>
-            <small className="text-muted">{POSITIONS[0]} - {TEAM_LABELS[0]}</small>
+            <small className="lobby-muted">{POSITIONS[0]} - {TEAM_LABELS[0]}</small>
           </div>
         </div>
-        <Form.Text className="d-block text-center text-muted">{helperText}</Form.Text>
+        <Form.Text className="d-block text-center lobby-muted">{helperText}</Form.Text>
       </Modal.Body>
       <Modal.Footer>
         <Button variant="outline-secondary" onClick={onBack}>
@@ -75,7 +75,7 @@ function SeatButton({ seat, isAI, team, position, onClick }: { seat: number; isA
       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onClick(seat); }}
     >
       <div><strong>{isAI ? "AI" : "Open"}</strong></div>
-      <small className="text-muted">{position} - {team}</small>
+      <small className="lobby-muted">{position} - {team}</small>
     </div>
   );
 }

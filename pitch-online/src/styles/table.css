@@ -96,6 +96,8 @@
   border: 1px solid var(--panel-border);
   box-shadow: var(--shadow-lg);
   max-width: 500px;
+  max-height: 85vh;
+  overflow-y: auto;
 }
 
 /* Hand display */
@@ -468,7 +470,8 @@
 .connection-badge {
   position: fixed;
   top: 10px;
-  right: 10px;
+  left: 50%;
+  transform: translateX(-50%);
   z-index: 9999;
   padding: 4px 12px;
   border-radius: 4px;
@@ -478,6 +481,7 @@
 
 .connection-badge--warning {
   background-color: #ffc107;
+  color: #333;
 }
 
 .connection-badge--error {
@@ -823,5 +827,19 @@
 
   .drawer {
     top: 0;
+  }
+
+  .mute-btn,
+  .rules-btn {
+    bottom: auto;
+    top: 10px;
+  }
+
+  .mute-btn {
+    right: 10px;
+  }
+
+  .rules-btn {
+    right: 52px;
   }
 }

@@ -45,7 +45,15 @@ export default function Card({ card, faceUp = true, playable, dimmed, highlighte
     .join(" ");
 
   return (
-    <div className={classes} style={style} onClick={playable ? onClick : undefined} title={title}>
+    <div
+      className={classes}
+      style={style}
+      onClick={playable ? onClick : undefined}
+      onKeyDown={playable ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick?.(); } } : undefined}
+      role={playable ? "button" : undefined}
+      tabIndex={playable ? 0 : undefined}
+      title={title}
+    >
       <div className="corner top-left">
         <span className="rank">{rank}</span>
         <span className="suit-symbol">{suitSymbol}</span>

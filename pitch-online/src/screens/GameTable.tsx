@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useAppState } from "../contexts/AppContext";
 import { useGameState } from "../contexts/GameContext";
 import { useWebSocket } from "../hooks/useWebSocket";
@@ -11,6 +12,7 @@ import ActionPanel from "../components/game/ActionPanel";
 import RoundSummaryOverlay from "../components/game/RoundSummaryOverlay";
 import GameOverOverlay from "../components/game/GameOverOverlay";
 import DisconnectedOverlay from "../components/common/DisconnectedOverlay";
+import HowToPlayModal from "../components/modals/HowToPlayModal";
 import TrickHistoryDrawer from "../components/game/TrickHistoryDrawer";
 import { bidDisplay } from "../types";
 import "../styles/table.css";
@@ -19,6 +21,7 @@ export default function GameTable() {
   const { seatIndex: localSeat } = useAppState();
   const game = useGameState();
   const { sendAction, playAgain, leaveRoom, reconnect } = useWebSocket();
+  const [showRules, setShowRules] = useState(false);
 
   if (localSeat === null) return null;
 
@@ -180,6 +183,9 @@ export default function GameTable() {
           onLeave={leaveRoom}
         />
       )}
+
+      <button className="rules-btn" onClick={() => setShowRules(true)} title="How to Play">?</button>
+      <HowToPlayModal show={showRules} onClose={() => setShowRules(false)} />
     </div>
   );
 }

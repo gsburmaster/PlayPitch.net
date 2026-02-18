@@ -39,7 +39,7 @@ export default function LobbyScreen() {
             </Button>
           </div>
           {!allFilled && (
-            <p className="text-center text-muted mt-2 mb-0">
+            <p className="text-center lobby-muted mt-2 mb-0">
               Waiting for {4 - seats.length} more player{4 - seats.length !== 1 ? "s" : ""}...
             </p>
           )}

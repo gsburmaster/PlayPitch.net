@@ -13,7 +13,7 @@ export default function SeatSlot({ seat, isLocal, teamLabel, position }: SeatSlo
       className="d-flex flex-column align-items-center"
       style={{ minWidth: 100 }}
     >
-      <small className="text-muted mb-1">{position} - {teamLabel}</small>
+      <small className="lobby-muted mb-1">{position} - {teamLabel}</small>
       <div
         className={`rounded p-2 text-center seat-slot${isLocal ? " seat-slot--local" : ""}`}
       >
@@ -27,7 +27,7 @@ export default function SeatSlot({ seat, isLocal, teamLabel, position }: SeatSlo
             {!seat.isAI && !seat.isConnected && <small className="text-danger">Disconnected</small>}
           </>
         ) : (
-          <div className="text-muted">Waiting...</div>
+          <div className="lobby-muted">Waiting...</div>
         )}
       </div>
     </div>

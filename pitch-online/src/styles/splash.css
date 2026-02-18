@@ -84,7 +84,7 @@
 }
 
 .splash-link {
-  color: var(--text-muted);
+  color: var(--text-secondary);
   font-size: 0.85rem;
   background: none;
   border: none;
@@ -94,7 +94,7 @@
 }
 
 .splash-link:hover {
-  color: var(--text-secondary);
+  color: var(--text-primary);
 }
 
 @media (max-width: 767px) {

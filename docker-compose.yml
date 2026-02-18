@@ -5,6 +5,8 @@ services:
     restart: unless-stopped
     ports:
       - "127.0.0.1:1337:1337"
+    mem_limit: 512m
     environment:
       - NODE_ENV=production
+      - NODE_OPTIONS=--max-old-space-size=256
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-https://www.playpitch.net,https://playpitch.net}

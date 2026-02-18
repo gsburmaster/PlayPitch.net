@@ -1,0 +1,10 @@
+pitchenv/
+__pycache__/
+.vscode/
+.git/
+.github/
+pitch-online/
+webserver/node_modules/
+webserver/dist/
+*.pt
+*.md

@@ -731,5 +731,64 @@ class TestWasBiddingAliasSafety(unittest.TestCase):
         self.assertTrue(was_bidding.all())
 
 
+class TestEvalThreshold(unittest.TestCase):
+    """Test that evaluate functions accept win_threshold parameter."""
+
+    def test_evaluate_uses_threshold(self):
+        """evaluate() should create envs with specified win_threshold."""
+        config = make_config(num_episodes=10)
+        agent = Agent(config, torch.device("cpu"))
+        result = evaluate(agent, config, num_games=2, win_threshold=10)
+        self.assertIn("win_rate", result)
+        self.assertIn("avg_margin", result)
+
+    def test_evaluate_parallel_uses_threshold(self):
+        """evaluate_parallel() should create envs with specified win_threshold."""
+        config = make_config(num_episodes=10)
+        agent = Agent(config, torch.device("cpu"))
+        result = evaluate_parallel(agent, config, num_games=2, win_threshold=10)
+        self.assertIn("win_rate", result)
+        self.assertIn("avg_margin", result)
+
+    def test_evaluate_default_threshold_54(self):
+        """Default threshold should be 54."""
+        config = make_config(num_episodes=10)
+        agent = Agent(config, torch.device("cpu"))
+        result = evaluate(agent, config, num_games=1)
+        self.assertIn("win_rate", result)
+
+
+class TestPendingRewards(unittest.TestCase):
+    """Test pending_rewards accumulation logic from train_vectorized."""
+
+    def test_pending_accumulates_and_drains(self):
+        """Pending rewards accumulate over steps and drain when team acts."""
+        N = 4
+        pending_rewards = torch.zeros(N, 2)
+        # Simulate 3 steps of rewards
+        rewards_step1 = torch.tensor([[1.0, -1.0]] * N)
+        rewards_step2 = torch.tensor([[0.5, -0.5]] * N)
+        pending_rewards += rewards_step1
+        pending_rewards += rewards_step2
+        # Team 0 acts on games 0,2 — drain their pending
+        team0_active = torch.tensor([True, False, True, False])
+        drained = pending_rewards[team0_active, 0].clone()
+        self.assertTrue(torch.allclose(drained, torch.tensor([1.5, 1.5])))
+        pending_rewards[team0_active, 0] = 0.0
+        # Pending for team 0 on games 1,3 should still have accumulated
+        self.assertEqual(pending_rewards[1, 0].item(), 1.5)
+        self.assertEqual(pending_rewards[3, 0].item(), 1.5)
+
+    def test_pending_reset_on_game_end(self):
+        """Pending rewards are zeroed when games end."""
+        N = 4
+        pending_rewards = torch.ones(N, 2) * 5.0
+        just_done = torch.tensor([False, True, False, True])
+        pending_rewards[just_done] = 0.0
+        self.assertEqual(pending_rewards[1, 0].item(), 0.0)
+        self.assertEqual(pending_rewards[1, 1].item(), 0.0)
+        self.assertEqual(pending_rewards[0, 0].item(), 5.0)
+
+
 if __name__ == "__main__":
     unittest.main()

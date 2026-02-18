@@ -678,7 +678,8 @@ def _greedy_actions_batch(net: DuelingDQN, states: np.ndarray,
 
 def evaluate(agent: Agent, config: TrainingConfig, num_games: int,
              opponent_weights: Optional[dict] = None,
-             device: torch.device = torch.device("cpu")) -> Dict[str, float]:
+             device: torch.device = torch.device("cpu"),
+             win_threshold: int = 54) -> Dict[str, float]:
     """Run evaluation games with greedy action selection.
     Returns win rate, avg score margin, avg game length."""
     wins = 0
@@ -688,7 +689,7 @@ def evaluate(agent: Agent, config: TrainingConfig, num_games: int,
     opp_net = _make_eval_network(config, device, opponent_weights)
 
     for game in range(num_games):
-        env = PitchEnv()
+        env = PitchEnv(win_threshold=win_threshold)
         obs, _ = env.reset(seed=config.seed + 1_000_000 + game)
         done = False
         steps = 0
@@ -723,11 +724,12 @@ def evaluate(agent: Agent, config: TrainingConfig, num_games: int,
 
 def evaluate_parallel(agent: Agent, config: TrainingConfig, num_games: int,
                       opponent_weights: Optional[dict] = None,
-                      device: torch.device = torch.device("cpu")) -> Dict[str, float]:
+                      device: torch.device = torch.device("cpu"),
+                      win_threshold: int = 54) -> Dict[str, float]:
     """Batched evaluation — runs all games simultaneously with act_batch."""
     opp_net = _make_eval_network(config, device, opponent_weights)
 
-    envs = [PitchEnv() for _ in range(num_games)]
+    envs = [PitchEnv(win_threshold=win_threshold) for _ in range(num_games)]
     obs_list = [env.reset(seed=config.seed + 1_000_000 + i)[0]
                 for i, env in enumerate(envs)]
     done_list = [False] * num_games
@@ -1363,6 +1365,8 @@ def train_vectorized(config: TrainingConfig):
 
     # Track per-game episode rewards for team 0
     episode_rewards = torch.zeros(N, device=device)
+    # Pending rewards: accumulate rewards for each team between their actions
+    pending_rewards = torch.zeros(N, 2, device=device)
 
     start_time = time.time()
     completed_episodes = start_episode
@@ -1408,6 +1412,7 @@ def train_vectorized(config: TrainingConfig):
                 recent_rewards.append(episode_rewards[i].item())
                 completed_episodes += 1
             episode_rewards[just_done] = 0.0
+            pending_rewards[just_done] = 0.0
             env.reset_done()
 
         # --- Get observations and masks ---
@@ -1461,14 +1466,14 @@ def train_vectorized(config: TrainingConfig):
 
         # --- Step the vectorized env ---
         prev_obs = obs  # already a fresh tensor from get_observations() torch.cat
-        next_obs, rewards, dones = env.step(actions)
+        next_obs, rewards_both, dones = env.step(actions)
 
-        # Apply reward scaling
-        rewards = rewards * config.reward_scale
+        # Accumulate rewards for both teams (scaled)
+        pending_rewards += rewards_both * config.reward_scale
 
         # Accumulate episode rewards (for team 0 acting games)
         team0_acting = (acting_team == 0) & ~just_done
-        episode_rewards[team0_acting] += rewards[team0_acting]
+        episode_rewards[team0_acting] += pending_rewards[team0_acting, 0]
 
         # --- Store transitions in replay buffer (CPU transfer) ---
         # Sync MPS before CPU transfer to prevent async memory corruption
@@ -1482,14 +1487,17 @@ def train_vectorized(config: TrainingConfig):
                 continue
             acting_agent = agent if team_id == 0 else agent_opp
 
+            # Use accumulated pending rewards for this team, then reset
+            team_rewards = pending_rewards[:, team_id]
+
             # Single D2H transfer: concatenate on-device, transfer once, split on CPU
             bundle = torch.cat([
-                prev_obs[team_active],                         # (K, 119)
-                actions[team_active].unsqueeze(1).float(),     # (K, 1)
-                rewards[team_active].unsqueeze(1),             # (K, 1)
-                next_obs[team_active],                         # (K, 119)
-                dones[team_active].unsqueeze(1).float(),       # (K, 1)
-            ], dim=1).cpu().numpy().copy()                     # (K, 241)
+                prev_obs[team_active],                              # (K, 119)
+                actions[team_active].unsqueeze(1).float(),          # (K, 1)
+                team_rewards[team_active].unsqueeze(1),             # (K, 1)
+                next_obs[team_active],                              # (K, 119)
+                dones[team_active].unsqueeze(1).float(),            # (K, 1)
+            ], dim=1).cpu().numpy().copy()                          # (K, 241)
 
             s = bundle[:, :119]
             a = bundle[:, 119].astype(np.int64)
@@ -1498,6 +1506,7 @@ def train_vectorized(config: TrainingConfig):
             d = bundle[:, 240].astype(bool)
 
             acting_agent.buffer.add_batch(s, a, r, ns, d)
+            pending_rewards[team_active, team_id] = 0.0
 
         global_step += N
 
@@ -1570,10 +1579,11 @@ def train_vectorized(config: TrainingConfig):
         if completed_episodes - last_eval_episode >= config.eval_freq \
                 and completed_episodes > 0:
             last_eval_episode = completed_episodes
-            print(f"  Evaluating at episode {completed_episodes}...")
+            print(f"  Evaluating at episode {completed_episodes} (threshold={new_threshold})...")
 
             eval_random = evaluate_parallel(
-                agent, config, config.eval_games, None, device)
+                agent, config, config.eval_games, None, device,
+                win_threshold=new_threshold)
             print(f"    vs Random:  WR={eval_random['win_rate']:.1%}  "
                   f"Margin={eval_random['avg_margin']:.1f}  "
                   f"Len={eval_random['avg_length']:.0f}")
@@ -1581,7 +1591,8 @@ def train_vectorized(config: TrainingConfig):
             if opponent_pool.pool:
                 latest_opp = opponent_pool.pool[-1]["weights"]
                 eval_pool = evaluate_parallel(
-                    agent, config, config.eval_games, latest_opp, device)
+                    agent, config, config.eval_games, latest_opp, device,
+                    win_threshold=new_threshold)
                 print(f"    vs Pool:    WR={eval_pool['win_rate']:.1%}  "
                       f"Margin={eval_pool['avg_margin']:.1f}")
             else:

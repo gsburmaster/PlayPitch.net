@@ -765,27 +765,31 @@ class TestCalculateRewards(unittest.TestCase):
         env.round_scores[0] = 0
         return env
 
-    def test_trick_points_reward(self):
-        """Trick points should produce positive reward for winning team."""
+    def test_rewards_shape(self):
+        """step() should return (N, 2) rewards for both teams."""
         env = self._setup_playing_env()
-        # Give players cards so a trick can be played
+        env.hands[0, 0, 0] = encode_card(0, 15)  # Hearts Ace
+        obs, rewards, dones = env.step(torch.tensor([0], dtype=torch.long))
+        self.assertEqual(rewards.shape, (1, 2))
+
+    def test_trick_points_reward(self):
+        """Trick points produce opposite rewards for each team."""
+        env = self._setup_playing_env()
         env.hands[0, 0, 0] = encode_card(0, 15)  # Hearts Ace (1pt)
         env.hands[0, 1, 0] = encode_card(0, 5)
         env.hands[0, 2, 0] = encode_card(0, 6)
         env.hands[0, 3, 0] = encode_card(0, 7)
 
-        # Play all 4 cards — team saved for reward calculation inside step()
+        # Play all 4 cards to complete the trick
         for i in range(4):
             obs, rewards, dones = env.step(torch.tensor([0], dtype=torch.long))
 
-        # The last step (player 3, team 1) should see negative reward
-        # because team 0 won the ace point
-        # Actually, reward is only for the acting team at step time
-        # Let's just verify non-zero reward was generated
-        # The trick had 1 point (Ace) going to team 0
+        # After trick completion, team 0 won 1pt (Ace)
+        # rewards[:, 0] should be positive, rewards[:, 1] negative
+        self.assertEqual(rewards[0, 0].item(), -rewards[0, 1].item())
 
     def test_game_end_win_bonus(self):
-        """Winning team should get +100 bonus at game end."""
+        """Winning team gets +100 bonus, losing team gets -100."""
         env = VectorizedPitchEnv(1, torch.device("cpu"), win_threshold=5)
         env.done[0] = False
         env.phase[0] = PHASE_PLAYING
@@ -797,19 +801,72 @@ class TestCalculateRewards(unittest.TestCase):
         env.round_scores[0, 0] = 6  # Enough to make bid
         env.round_scores[0, 1] = 1
 
-        # Simulate round end condition — set up no valid plays for all
+        # No cards → round ends
         env.playing_iterator[0] = 0
-        # No cards in hands → no valid plays → round ends
         env.hands[0] = 0
 
-        env.scores_before = env.scores.clone()
-        env.last_trick_points[:] = 0
-        team = torch.tensor([0])  # team 0 acting
-
-        # Step with action 23 (no valid play) to trigger round end
         obs, rewards, dones = env.step(torch.tensor([23], dtype=torch.long))
-        # Game should have ended
         self.assertTrue(env.done[0].item())
+        # Team 0 wins → +100, team 1 loses → -100
+        self.assertGreater(rewards[0, 0].item(), 0)
+        self.assertLess(rewards[0, 1].item(), 0)
+
+    def test_round_end_no_double_counting(self):
+        """At round end, trick points already given shouldn't be re-counted."""
+        env = VectorizedPitchEnv(1, torch.device("cpu"), win_threshold=54)
+        env.done[0] = False
+        env.phase[0] = PHASE_PLAYING
+        env.trump_suit[0] = 0
+        env.current_player[0] = 0
+        env.playing_iterator[0] = 0
+        env.current_bid[0] = 5
+        env.current_high_bidder[0] = 0  # Team 0 bid 5
+
+        # Set up: team 0 has earned 5 round_scores, team 1 has 2
+        env.round_scores[0, 0] = 5
+        env.round_scores[0, 1] = 2
+        env.hands[0] = 0  # No cards → round will end
+
+        obs, rewards, dones = env.step(torch.tensor([23], dtype=torch.long))
+
+        # Team 0 made their bid (5 >= 5) → score += 5
+        # Team 1 gets their round_score → score += 2
+        # But those points were already rewarded per-trick during the round.
+        # Round-end adjustment should be 0 for both teams (no set, no moon).
+        # With no trick this step (last_trick_points=0) and adjustment=0,
+        # reward should be 0 for both teams (ignoring game-end bonus).
+        if not dones[0]:
+            # Game didn't end, so no game-end bonus to confuse things
+            self.assertAlmostEqual(rewards[0, 0].item(), 0.0, places=5)
+            self.assertAlmostEqual(rewards[0, 1].item(), 0.0, places=5)
+
+    def test_round_end_set_penalty_adjustment(self):
+        """When bidder gets set, round-end adjustment reflects the penalty."""
+        env = VectorizedPitchEnv(1, torch.device("cpu"), win_threshold=54)
+        env.done[0] = False
+        env.phase[0] = PHASE_PLAYING
+        env.trump_suit[0] = 0
+        env.current_player[0] = 0
+        env.playing_iterator[0] = 0
+        env.current_bid[0] = 7  # Bid 7
+        env.current_high_bidder[0] = 0  # Team 0 bid
+
+        # Team 0 only scored 3 (less than 7 bid) → will get set
+        env.round_scores[0, 0] = 3
+        env.round_scores[0, 1] = 4
+        env.hands[0] = 0  # No cards → round ends
+
+        obs, rewards, dones = env.step(torch.tensor([23], dtype=torch.long))
+
+        # Bidder team 0 gets set: actual score_delta = -7
+        # Saved round_scores for team 0 = 3
+        # Adjustment for team 0 = -7 - 3 = -10
+        # Team 1: actual score_delta = +4, saved = 4, adjustment = 0
+        # Net reward for team 0 = 0 (trick) + (-10 - 0) = -10
+        # Net reward for team 1 = 0 (trick) + (0 - (-10)) = +10
+        if not dones[0]:
+            self.assertAlmostEqual(rewards[0, 0].item(), -10.0, places=5)
+            self.assertAlmostEqual(rewards[0, 1].item(), 10.0, places=5)
 
 
 class TestDealerForcedBid(unittest.TestCase):

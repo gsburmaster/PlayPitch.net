@@ -108,6 +108,7 @@ class VectorizedPitchEnv:
         self.round_scores = torch.zeros(N, 2, dtype=torch.int8, device=device)
         self.last_trick_points = torch.zeros(N, 2, dtype=torch.int8, device=device)
         self.scores_before = torch.zeros(N, 2, dtype=torch.int16, device=device)
+        self._saved_round_scores = torch.zeros(N, 2, dtype=torch.int8, device=device)
 
         # --- Misc ---
         self.player_cards_taken = torch.full((N, 4), -1, dtype=torch.int8, device=device)
@@ -152,6 +153,7 @@ class VectorizedPitchEnv:
         self.round_scores[mask] = 0
         self.last_trick_points[mask] = 0
         self.scores_before[mask] = 0
+        self._saved_round_scores[mask] = 0
         self.player_cards_taken[mask] = -1
         self.trick_winner[mask] = 0
         self.done[mask] = False
@@ -731,6 +733,9 @@ class VectorizedPitchEnv:
             is_t = other_team == t
             self.scores[g[is_t], t] += other_rs[is_t].to(torch.int16)
 
+        # Save round_scores before reset clears them (used by _calculate_rewards)
+        self._saved_round_scores[mask] = self.round_scores[mask]
+
         # Check for game end before resetting round
         self._check_game_end(mask)
 
@@ -912,47 +917,52 @@ class VectorizedPitchEnv:
     # Rewards
     # ------------------------------------------------------------------
 
-    def _calculate_rewards(self, team: torch.Tensor) -> torch.Tensor:
-        """Calculate rewards for the acting team.
+    def _calculate_rewards(self) -> torch.Tensor:
+        """Calculate rewards for both teams.
 
-        team: (N,) tensor of team indices (0 or 1)
-        Returns: (N,) float tensor of rewards
+        Returns: (N, 2) float tensor — rewards[:, t] is team t's reward.
+
+        Reward components:
+        - Per-trick: points won this step (dense signal during play)
+        - Round-end adjustment: score_delta - round_scores (non-zero only
+          when bid outcome differs from trick points, e.g. getting set)
+        - Game-end bonus: +/-100 for winning/losing
         """
-        other_team = 1 - team.long()
-        team = team.long()
+        rewards = torch.zeros(self.N, 2, device=self.device)
 
-        # Trick-level: points my team won minus other team
-        game_idx = torch.arange(self.N, device=self.device)
-        my_trick_pts = self.last_trick_points[game_idx, team].float()
-        opp_trick_pts = self.last_trick_points[game_idx, other_team].float()
-        reward = my_trick_pts - opp_trick_pts
+        # Trick-level: points each team won minus opponent
+        trick_pts = self.last_trick_points.float()  # (N, 2)
+        rewards[:, 0] = trick_pts[:, 0] - trick_pts[:, 1]
+        rewards[:, 1] = trick_pts[:, 1] - trick_pts[:, 0]
 
-        # Round-end: score delta
-        my_score_delta = (self.scores[game_idx, team] - self.scores_before[game_idx, team]).float()
-        opp_score_delta = (self.scores[game_idx, other_team] - self.scores_before[game_idx, other_team]).float()
-        reward = reward + my_score_delta - opp_score_delta
+        # Round-end bid adjustment: actual score change minus trick points
+        # already given during the round. Non-zero only when bidder gets set
+        # or makes a moon bid.
+        score_delta = (self.scores - self.scores_before).float()  # (N, 2)
+        saved_rs = self._saved_round_scores.float()  # (N, 2)
+        adjustment = score_delta - saved_rs  # (N, 2)
+        rewards[:, 0] += adjustment[:, 0] - adjustment[:, 1]
+        rewards[:, 1] += adjustment[:, 1] - adjustment[:, 0]
 
-        # Game-end bonus
-        # (simplified: check if current team is winning)
+        # Game-end bonus for both teams
         if self.done.any():
             done_mask = self.done
             s = self.scores[done_mask]
             bidder_team = (self.current_high_bidder[done_mask] % 2).long()
-            my_t = team[done_mask]
 
-            my_score = s.gather(1, my_t.unsqueeze(1)).squeeze(1)
-            opp_score = s.gather(1, (1 - my_t).unsqueeze(1)).squeeze(1)
-
-            won = (my_score > opp_score) | (
-                (my_score >= self.win_threshold) & (bidder_team == my_t)
+            # Team 0 wins if higher score, or reached threshold as bidder
+            team0_wins = (s[:, 0] > s[:, 1]) | (
+                (s[:, 0] >= self.win_threshold) & (bidder_team == 0)
             )
-            reward[done_mask] = reward[done_mask] + torch.where(
-                won,
+            bonus = torch.where(
+                team0_wins,
                 torch.tensor(100.0, device=self.device),
                 torch.tensor(-100.0, device=self.device),
             )
+            rewards[done_mask, 0] += bonus
+            rewards[done_mask, 1] -= bonus
 
-        return reward
+        return rewards
 
     # ------------------------------------------------------------------
     # Main step
@@ -962,7 +972,7 @@ class VectorizedPitchEnv:
         """Step all N games with the given actions.
 
         actions: (N,) int tensor of action indices
-        Returns: (observations, rewards, dones) tensors
+        Returns: (observations, rewards, dones) where rewards is (N, 2) for both teams
         """
         actions = actions.to(torch.int8)
 
@@ -970,9 +980,9 @@ class VectorizedPitchEnv:
         actions = torch.where(self.done, torch.tensor(-1, dtype=torch.int8, device=self.device), actions)
 
         # Save scores for reward calculation
-        team = (self.current_player % 2).long()
         self.scores_before = self.scores.clone()
         self.last_trick_points[:] = 0
+        self._saved_round_scores[:] = 0
 
         # Execute actions by phase
         self._handle_bid(actions)
@@ -982,7 +992,7 @@ class VectorizedPitchEnv:
         self._advance_after_play(actions)
 
         # Build outputs
-        rewards = self._calculate_rewards(team)
+        rewards = self._calculate_rewards()
         obs, _ = self.get_observations()
 
         return obs, rewards, self.done.clone()

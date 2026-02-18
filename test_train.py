@@ -233,46 +233,30 @@ class TestEvaluateParallel(unittest.TestCase):
 
 
 class TestPitchEnvWrapper(unittest.TestCase):
-    """Tests for PitchEnvWrapper reward shaping."""
+    """Tests for PitchEnvWrapper reward scaling."""
 
     def _make_wrapper(self):
         env = PitchEnv(win_threshold=5)
-        return PitchEnvWrapper(env, reward_scale=0.01, bid_bonus=0.5)
+        return PitchEnvWrapper(env, reward_scale=0.01)
 
-    def test_safe_bid_bonus(self):
-        """Bid <= 7 with >= 4 cards should get a bonus."""
-        wrapper = self._make_wrapper()
-        obs, _ = wrapper.reset(seed=42)
-
-        # Advance to a player who can bid
-        # The first player (not dealer) can bid
-        if wrapper.env.phase.value == 0:
-            base_obs = obs
-            # Bid 5 (action 11) — safe bid
-            obs, reward, done, _, _ = wrapper.step(11, base_obs)
-            # Reward should include the bid bonus (0.5 * 0.01 = 0.005)
-            # Base reward is 0 for a bid action, so reward should be +0.005
-            self.assertAlmostEqual(reward, 0.005, places=4,
-                                   msg="Safe bid should get +0.005 bonus")
-
-    def test_risky_bid_penalty(self):
-        """Bid >= 10 should get a penalty."""
+    def test_bid_no_bonus(self):
+        """Bidding should only get scaled base reward (no bid bonus)."""
         wrapper = self._make_wrapper()
         obs, _ = wrapper.reset(seed=42)
 
         if wrapper.env.phase.value == 0:
-            # Bid 10 (action 16) — risky
-            obs, reward, done, _, _ = wrapper.step(16, obs)
-            self.assertAlmostEqual(reward, -0.005, places=4,
-                                   msg="Risky bid should get -0.005 penalty")
+            obs, reward, done, _, _ = wrapper.step(11, obs)
+            # Base reward for a bid is 0, scaled by 0.01 = 0
+            self.assertAlmostEqual(reward, 0.0, places=4,
+                                   msg="Bid should have 0 shaped reward")
 
     def test_pass_no_bonus(self):
-        """Passing should not get any bid bonus."""
+        """Passing should have 0 reward."""
         wrapper = self._make_wrapper()
         obs, _ = wrapper.reset(seed=42)
 
         if wrapper.env.phase.value == 0:
-            obs, reward, done, _, _ = wrapper.step(10, obs)  # pass
+            obs, reward, done, _, _ = wrapper.step(10, obs)
             self.assertAlmostEqual(reward, 0.0, places=4,
                                    msg="Pass should have 0 reward")
 

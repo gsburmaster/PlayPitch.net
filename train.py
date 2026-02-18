@@ -484,43 +484,21 @@ class Agent:
 # ---------------------------------------------------------------------------
 
 class PitchEnvWrapper(gym.Wrapper):
-    """Wraps PitchEnv to scale rewards and add bid quality bonuses.
+    """Wraps PitchEnv to scale rewards.
     Does NOT modify the underlying env's logic or observation layout."""
 
     def __init__(self, env: PitchEnv, reward_scale: float = 0.01, bid_bonus: float = 0.5):
         super().__init__(env)
         self.reward_scale = reward_scale
-        self.bid_bonus = bid_bonus
-        self._prev_bid = 0
-        self._prev_phase = 0
+        self.bid_bonus = bid_bonus  # kept for checkpoint compat, unused
 
     def reset(self, **kwargs):
         obs, info = self.env.reset(**kwargs)
-        self._prev_bid = 0
-        self._prev_phase = 0
         return obs, info
 
     def step(self, action, current_obs):
-        team = self.env.current_player % 2
-        phase_before = self.env.phase.value if hasattr(self.env.phase, "value") else self.env.phase
-
         obs, reward, terminated, truncated, info = self.env.step(action, current_obs)
-
-        # Scale reward
         shaped_reward = reward * self.reward_scale
-
-        # Bid quality bonus: reward reasonable bids, penalize overbids
-        if phase_before == 0 and 11 <= action <= 18:  # Made a bid
-            bid_amount = action - 6
-            # Simple heuristic: bids <= 7 are usually safe, higher is risky
-            hand = current_obs["hand"]
-            num_cards = int(np.sum(hand[:, 1] > 0))  # count non-zero rank cards
-            if bid_amount <= 7 and num_cards >= 4:
-                shaped_reward += self.bid_bonus * self.reward_scale
-            elif bid_amount >= 10:
-                shaped_reward -= self.bid_bonus * self.reward_scale
-
-        self._prev_phase = obs.get("phase", 0)
         return obs, shaped_reward, terminated, truncated, info
 
 
@@ -1483,26 +1461,10 @@ def train_vectorized(config: TrainingConfig):
 
         # --- Step the vectorized env ---
         prev_obs = obs  # already a fresh tensor from get_observations() torch.cat
-        was_bidding = (env.phase == 0)  # PHASE_BIDDING — bool tensor, no clone needed
         next_obs, rewards, dones = env.step(actions)
 
-        # Apply reward scaling + bid bonus shaping
+        # Apply reward scaling
         rewards = rewards * config.reward_scale
-
-        # Bid quality bonus (matches PitchEnvWrapper logic)
-        made_bid = was_bidding & (actions >= 11) & (actions <= 18)
-        if made_bid.any():
-            bid_amount = (actions[made_bid] - 6).long()
-            # Count non-zero cards in hand (obs indices 1,3,5,...,19 are ranks)
-            hand_ranks = prev_obs[made_bid, 1::2][:, :10]
-            num_cards = (hand_ranks > 0).sum(dim=1)
-            safe_bid = (bid_amount <= 7) & (num_cards >= 4)
-            risky_bid = bid_amount >= 10
-            rewards[made_bid] = rewards[made_bid] + torch.where(
-                safe_bid, torch.tensor(config.bid_bonus * config.reward_scale, device=device),
-                torch.where(risky_bid,
-                             torch.tensor(-config.bid_bonus * config.reward_scale, device=device),
-                             torch.tensor(0.0, device=device)))
 
         # Accumulate episode rewards (for team 0 acting games)
         team0_acting = (acting_team == 0) & ~just_done

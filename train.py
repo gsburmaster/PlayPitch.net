@@ -157,19 +157,21 @@ class SumTree:
         self.size = 0
 
     def _propagate(self, idx: int, change: float):
-        parent = (idx - 1) // 2
-        self.tree[parent] += change
-        if parent != 0:
-            self._propagate(parent, change)
+        while idx != 0:
+            parent = (idx - 1) // 2
+            self.tree[parent] += change
+            idx = parent
 
     def _retrieve(self, idx: int, s: float) -> int:
-        left = 2 * idx + 1
-        right = left + 1
-        if left >= len(self.tree):
-            return idx
-        if s <= self.tree[left]:
-            return self._retrieve(left, s)
-        return self._retrieve(right, s - self.tree[left])
+        while True:
+            left = 2 * idx + 1
+            if left >= len(self.tree):
+                return idx
+            if s <= self.tree[left]:
+                idx = left
+            else:
+                s -= self.tree[left]
+                idx = left + 1
 
     @property
     def total(self) -> float:
@@ -614,6 +616,40 @@ class OpponentPool:
 # Evaluation
 # ---------------------------------------------------------------------------
 
+def _make_eval_network(config: TrainingConfig, device: torch.device,
+                       weights: Optional[dict] = None) -> Optional[DuelingDQN]:
+    """Create a lightweight eval-only network (no replay buffer/target net)."""
+    if weights is None:
+        return None
+    net = DuelingDQN(config.input_dim, config.output_dim,
+                     config.backbone_hidden, config.backbone_mid,
+                     config.head_hidden).to(device)
+    net.load_state_dict(weights)
+    net.eval()
+    return net
+
+
+def _greedy_action(net: DuelingDQN, state: np.ndarray,
+                   action_mask: np.ndarray, device: torch.device) -> int:
+    """Single greedy action from a network."""
+    state_t = torch.FloatTensor(state).unsqueeze(0).to(device)
+    with torch.no_grad():
+        q = net(state_t).squeeze()
+    q[torch.FloatTensor(action_mask).to(device) == 0] = float("-inf")
+    return int(q.argmax().item())
+
+
+def _greedy_actions_batch(net: DuelingDQN, states: np.ndarray,
+                          masks: np.ndarray, device: torch.device) -> np.ndarray:
+    """Batched greedy actions from a network."""
+    batch_t = torch.FloatTensor(states).to(device)
+    with torch.no_grad():
+        q = net(batch_t)
+    mask_t = torch.FloatTensor(masks).to(device)
+    q[mask_t == 0] = float("-inf")
+    return q.argmax(dim=1).cpu().numpy()
+
+
 def evaluate(agent: Agent, config: TrainingConfig, num_games: int,
              opponent_weights: Optional[dict] = None,
              device: torch.device = torch.device("cpu")) -> Dict[str, float]:
@@ -623,11 +659,7 @@ def evaluate(agent: Agent, config: TrainingConfig, num_games: int,
     total_margin = 0.0
     total_length = 0
 
-    # Create opponent agent for seats 1/3
-    opp_agent = Agent(config, device)
-    if opponent_weights is not None:
-        opp_agent.q_network.load_state_dict(opponent_weights)
-    opp_agent.q_network.eval()
+    opp_net = _make_eval_network(config, device, opponent_weights)
 
     for game in range(num_games):
         env = PitchEnv()
@@ -641,16 +673,14 @@ def evaluate(agent: Agent, config: TrainingConfig, num_games: int,
             if cp % 2 == 0:
                 action = agent.act(state, obs["action_mask"], greedy=True)
             else:
-                if opponent_weights is not None:
-                    action = opp_agent.act(state, obs["action_mask"], greedy=True)
+                if opp_net is not None:
+                    action = _greedy_action(opp_net, state, obs["action_mask"], device)
                 else:
-                    # Random opponent
                     valid = np.where(obs["action_mask"] == 1)[0]
                     action = int(np.random.choice(valid))
             obs, _, done, _, _ = env.step(action, obs)
             steps += 1
 
-        # Team 0 (seats 0,2) is the learner
         margin = env.scores[0] - env.scores[1]
         if margin > 0:
             wins += 1
@@ -669,10 +699,7 @@ def evaluate_parallel(agent: Agent, config: TrainingConfig, num_games: int,
                       opponent_weights: Optional[dict] = None,
                       device: torch.device = torch.device("cpu")) -> Dict[str, float]:
     """Batched evaluation — runs all games simultaneously with act_batch."""
-    opp_agent = Agent(config, device)
-    if opponent_weights is not None:
-        opp_agent.q_network.load_state_dict(opponent_weights)
-    opp_agent.q_network.eval()
+    opp_net = _make_eval_network(config, device, opponent_weights)
 
     envs = [PitchEnv() for _ in range(num_games)]
     obs_list = [env.reset(seed=config.seed + 1_000_000 + i)[0]
@@ -682,7 +709,6 @@ def evaluate_parallel(agent: Agent, config: TrainingConfig, num_games: int,
 
     while not all(done_list):
         for team in [0, 1]:
-            acting = agent if team == 0 else opp_agent
             indices = [i for i in range(num_games)
                        if not done_list[i]
                        and envs[i].current_player % 2 == team]
@@ -692,14 +718,15 @@ def evaluate_parallel(agent: Agent, config: TrainingConfig, num_games: int,
             states = np.array([flatten_observation(obs_list[i]) for i in indices])
             masks = np.array([obs_list[i]["action_mask"] for i in indices])
 
-            if opponent_weights is None and team == 1:
-                # Random opponent: pick random valid actions
+            if team == 0:
+                actions = agent.act_batch(states, masks, greedy=True)
+            elif opp_net is not None:
+                actions = _greedy_actions_batch(opp_net, states, masks, device)
+            else:
                 actions = np.array([
                     int(np.random.choice(np.where(masks[j] == 1)[0]))
                     for j in range(len(indices))
                 ], dtype=np.int64)
-            else:
-                actions = acting.act_batch(states, masks, greedy=True)
 
             for idx, i in enumerate(indices):
                 obs_list[i], _, done_list[i], _, _ = envs[i].step(

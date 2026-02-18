@@ -527,10 +527,10 @@ class VectorizedPitchEnv:
         # Remove from hand and compact (shift remaining cards left to fill gap)
         for k in range(len(game_idx)):
             gi, pi, si = game_idx[k].item(), player_idx[k].item(), slot_idx[k].item()
-            hand = self.hands[gi, pi]
-            # Shift cards after si left by one
-            hand[si:-1] = hand[si + 1:].clone()
-            hand[-1] = 0
+            h = self.hands[gi, pi].clone()   # full copy, not a view
+            h[si:-1] = h[si + 1:].clone()
+            h[-1] = 0
+            self.hands[gi, pi] = h           # single write back
 
         # Track played cards
         pc_idx = self.played_cards_idx[m].long()
@@ -789,9 +789,9 @@ class VectorizedPitchEnv:
         # Pull state to CPU
         hands_cpu = self.hands[mask].cpu().numpy().copy()    # (M, 4, 10)
         deck_cpu = self.deck[mask].cpu().numpy().copy()      # (M, 54)
-        trump_cpu = self.trump_suit[mask].cpu().numpy()      # (M,)
-        dealer_cpu = self.dealer[mask].cpu().numpy()          # (M,)
-        bidder_cpu = self.current_high_bidder[mask].cpu().numpy()  # (M,)
+        trump_cpu = self.trump_suit[mask].cpu().numpy().copy()      # (M,)
+        dealer_cpu = self.dealer[mask].cpu().numpy().copy()          # (M,)
+        bidder_cpu = self.current_high_bidder[mask].cpu().numpy().copy()  # (M,)
         cards_taken_cpu = self.player_cards_taken[mask].cpu().numpy().copy()  # (M, 4)
 
         M = len(indices)

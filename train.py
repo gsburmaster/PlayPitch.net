@@ -693,11 +693,15 @@ def evaluate(agent: Agent, config: TrainingConfig, num_games: int,
 
     opp_net = _make_eval_network(config, device, opponent_weights)
 
-    # Lazy-init MCTS searcher if enabled
+    # Lazy-init MCTS searcher if enabled (always on CPU to avoid CUDA
+    # memory corruption — MCTS envs are CPU PitchEnv objects anyway)
     mcts = None
     if config.mcts_sims > 0:
+        import copy
         from mcts import BatchedISMCTS
-        mcts = BatchedISMCTS(agent.q_network, device,
+        cpu_device = torch.device('cpu')
+        mcts_net = copy.deepcopy(agent.q_network).to(cpu_device).eval()
+        mcts = BatchedISMCTS(mcts_net, cpu_device,
                              num_envs=config.mcts_sims,
                              num_steps=config.mcts_steps)
 

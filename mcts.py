@@ -104,8 +104,6 @@ class BatchedISMCTS:
         """Run root-parallel IS-MCTS. Returns best action for player."""
         was_training = self.q_network.training
         self.q_network.eval()
-        if self.device.type == 'cuda':
-            torch.cuda.synchronize(self.device)
 
         N = self.num_envs
         rng = np.random.default_rng()

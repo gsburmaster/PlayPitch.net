@@ -104,6 +104,8 @@ class BatchedISMCTS:
         """Run root-parallel IS-MCTS. Returns best action for player."""
         was_training = self.q_network.training
         self.q_network.eval()
+        if self.device.type == 'cuda':
+            torch.cuda.synchronize(self.device)
 
         N = self.num_envs
         rng = np.random.default_rng()
@@ -214,7 +216,7 @@ class BatchedISMCTS:
     def _batch_greedy(self, states: np.ndarray, masks: np.ndarray) -> np.ndarray:
         """Batched greedy action selection. Returns (B,) int array."""
         with torch.no_grad():
-            t = torch.FloatTensor(states).to(self.device)
+            t = torch.tensor(states, dtype=torch.float32, device=self.device)
             q = self.q_network(t).cpu().numpy()
         q[masks == 0] = -np.inf
         return np.argmax(q, axis=1)
@@ -235,7 +237,7 @@ class BatchedISMCTS:
         if need_nn:
             states = np.array([flatten_observation(obs_list[i]) for i in need_nn])
             with torch.no_grad():
-                t = torch.FloatTensor(states).to(self.device)
+                t = torch.tensor(states, dtype=torch.float32, device=self.device)
                 q = self.q_network(t)
                 v = torch.tanh(q.max(dim=1).values).cpu().numpy()
             for j, i in enumerate(need_nn):
@@ -250,7 +252,7 @@ class BatchedISMCTS:
         mask = obs['action_mask']
         with torch.no_grad():
             q = self.q_network(
-                torch.FloatTensor(state).unsqueeze(0).to(self.device)
+                torch.tensor(state, dtype=torch.float32, device=self.device).unsqueeze(0)
             ).squeeze(0).cpu().numpy()
         q[mask == 0] = -np.inf
         return int(np.argmax(q))

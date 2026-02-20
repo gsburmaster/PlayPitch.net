@@ -685,11 +685,21 @@ def evaluate(agent: Agent, config: TrainingConfig, num_games: int,
              win_threshold: int = 54) -> Dict[str, float]:
     """Run evaluation games with greedy action selection.
     Returns win rate, avg score margin, avg game length."""
+    from pitch_env import Phase
+
     wins = 0
     total_margin = 0.0
     total_length = 0
 
     opp_net = _make_eval_network(config, device, opponent_weights)
+
+    # Lazy-init MCTS searcher if enabled
+    mcts = None
+    if config.mcts_sims > 0:
+        from mcts import BatchedISMCTS
+        mcts = BatchedISMCTS(agent.q_network, device,
+                             num_envs=config.mcts_sims,
+                             num_steps=config.mcts_steps)
 
     for game in range(num_games):
         env = PitchEnv(win_threshold=win_threshold)
@@ -701,7 +711,10 @@ def evaluate(agent: Agent, config: TrainingConfig, num_games: int,
             state = flatten_observation(obs)
             cp = env.current_player
             if cp % 2 == 0:
-                action = agent.act(state, obs["action_mask"], greedy=True)
+                if mcts is not None and env.phase == Phase.PLAYING:
+                    action = mcts.search(env, cp)
+                else:
+                    action = agent.act(state, obs["action_mask"], greedy=True)
             else:
                 if opp_net is not None:
                     action = _greedy_action(opp_net, state, obs["action_mask"], device)
@@ -730,6 +743,11 @@ def evaluate_parallel(agent: Agent, config: TrainingConfig, num_games: int,
                       device: torch.device = torch.device("cpu"),
                       win_threshold: int = 54) -> Dict[str, float]:
     """Batched evaluation — runs all games simultaneously with act_batch."""
+    # MCTS is inherently per-game; fall back to serial evaluate
+    if config.mcts_sims > 0:
+        return evaluate(agent, config, num_games, opponent_weights,
+                        device, win_threshold)
+
     opp_net = _make_eval_network(config, device, opponent_weights)
 
     envs = [PitchEnv(win_threshold=win_threshold) for _ in range(num_games)]

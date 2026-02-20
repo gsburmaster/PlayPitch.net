@@ -83,6 +83,10 @@ class TrainingConfig:
     vectorized: bool = False  # use GPU-native vectorized environment
     num_envs: int = 512  # number of parallel games when parallel/vectorized=True
 
+    # MCTS (evaluation only)
+    mcts_sims: int = 0    # 0=disabled; >0=num parallel determinizations for MCTS at eval
+    mcts_steps: int = 8   # simulation steps per MCTS determinization
+
     # Reward shaping
     reward_scale: float = 0.01  # divide all rewards by 100
     bid_bonus: float = 0.5  # bonus for good bids, penalty for overbids

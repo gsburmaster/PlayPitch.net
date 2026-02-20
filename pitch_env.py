@@ -157,6 +157,39 @@ class PitchEnv(gym.Env):
         info = {}
         return observation, info
 
+    def deep_copy(self) -> 'PitchEnv':
+        """Fast clone for MCTS simulations. Bypasses __init__/reset."""
+        clone = object.__new__(PitchEnv)
+        # Gymnasium bookkeeping (shared, not mutated)
+        clone.num_actions = self.num_actions
+        clone.action_space = self.action_space
+        clone.observation_space = self.observation_space
+        clone.np_random = self.np_random
+        clone.win_threshold = self.win_threshold
+        # Scalars (immutable)
+        clone.current_bid = self.current_bid
+        clone.current_high_bidder = self.current_high_bidder
+        clone.dealer = self.dealer
+        clone.current_player = self.current_player
+        clone.trump_suit = self.trump_suit
+        clone.phase = self.phase
+        clone.trick_winner = self.trick_winner
+        clone.number_of_rounds_played = self.number_of_rounds_played
+        clone.playing_iterator = self.playing_iterator
+        # Lists of primitives
+        clone.scores = list(self.scores)
+        clone.round_scores = list(self.round_scores)
+        clone.player_cards_taken = list(self.player_cards_taken)
+        clone.last_trick_points = list(self.last_trick_points)
+        # Lists of Cards (Card attrs never mutated)
+        clone.deck = list(self.deck)
+        clone.played_cards = list(self.played_cards)
+        clone.hands = [list(h) for h in self.hands]
+        # Nested lists of tuples (tuples are immutable)
+        clone.current_trick = list(self.current_trick)
+        clone.tricks = [list(t) for t in self.tricks]
+        return clone
+
     def print_state(self): #sometimes you just gotta debug
         strn = '\nCurrent State: \n'
         strn += 'Current Phase: ' + str(self.phase) + '\n'
@@ -304,10 +337,14 @@ class PitchEnv(gym.Env):
             self.current_trick.append((card,self.current_player))
             self.hands[self.current_player].remove(card)
             self.played_cards.append(card)
-        if (len(self.current_trick) == 0 and self._no_more_valid_plays_any_hand()): 
+        if (len(self.current_trick) == 0 and self._no_more_valid_plays_any_hand()):
             self._end_round()
             return
         if self.playing_iterator == 3: #tell when everyone has played:
+            if not self.current_trick:
+                # All 4 players passed with no valid plays this trick
+                self._end_round()
+                return
             self._resolve_trick()
             self.playing_iterator = 0
             self.current_player = (self.current_player + 1) % 4 

@@ -687,6 +687,10 @@ def evaluate(agent: Agent, config: TrainingConfig, num_games: int,
     Returns win rate, avg score margin, avg game length."""
     from pitch_env import Phase
 
+    # MCTS is CPU-only and slow; cap eval games to keep training moving
+    if config.mcts_sims > 0:
+        num_games = min(num_games, 20)
+
     wins = 0
     total_margin = 0.0
     total_length = 0

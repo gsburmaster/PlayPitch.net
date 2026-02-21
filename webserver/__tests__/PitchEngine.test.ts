@@ -386,13 +386,38 @@ describe("PitchEngine", () => {
     });
 
     it("fills players to at most 6 cards", () => {
-      engine.step(11);
-      engine.step(ACTION_PASS);
-      engine.step(ACTION_PASS);
-      engine.step(ACTION_PASS); // dealer passes
-      engine.step(19 + Suit.SPADES);
+      // Use controlled hands: 3 trump + 6 non-trump each.
+      // After discard (3 remain) + fill (draw 3) → 6 cards per player.
+      const e = new PitchEngine();
+      e.reset(0);
+      e.hands[0] = [
+        { suit: Suit.SPADES, rank: 2 }, { suit: Suit.SPADES, rank: 3 }, { suit: Suit.SPADES, rank: 4 },
+        { suit: Suit.HEARTS, rank: 2 }, { suit: Suit.HEARTS, rank: 3 }, { suit: Suit.HEARTS, rank: 4 },
+        { suit: Suit.CLUBS, rank: 2 }, { suit: Suit.CLUBS, rank: 3 }, { suit: Suit.CLUBS, rank: 4 },
+      ];
+      e.hands[1] = [
+        { suit: Suit.SPADES, rank: 5 }, { suit: Suit.SPADES, rank: 6 }, { suit: Suit.SPADES, rank: 7 },
+        { suit: Suit.HEARTS, rank: 5 }, { suit: Suit.HEARTS, rank: 6 }, { suit: Suit.HEARTS, rank: 7 },
+        { suit: Suit.DIAMONDS, rank: 2 }, { suit: Suit.DIAMONDS, rank: 3 }, { suit: Suit.DIAMONDS, rank: 4 },
+      ];
+      e.hands[2] = [
+        { suit: Suit.SPADES, rank: 8 }, { suit: Suit.SPADES, rank: 9 }, { suit: Suit.SPADES, rank: 10 },
+        { suit: Suit.HEARTS, rank: 8 }, { suit: Suit.HEARTS, rank: 9 }, { suit: Suit.HEARTS, rank: 10 },
+        { suit: Suit.DIAMONDS, rank: 5 }, { suit: Suit.DIAMONDS, rank: 6 }, { suit: Suit.DIAMONDS, rank: 7 },
+      ];
+      e.hands[3] = [
+        { suit: Suit.SPADES, rank: 12 }, { suit: Suit.SPADES, rank: 13 }, { suit: Suit.SPADES, rank: 14 },
+        { suit: Suit.DIAMONDS, rank: 8 }, { suit: Suit.DIAMONDS, rank: 9 }, { suit: Suit.DIAMONDS, rank: 10 },
+        { suit: Suit.CLUBS, rank: 5 }, { suit: Suit.CLUBS, rank: 6 }, { suit: Suit.CLUBS, rank: 7 },
+      ];
+      e.currentBid = 5;
+      e.currentHighBidder = 0;
+      e.phase = Phase.CHOOSESUIT;
+      e.currentPlayer = 0;
+
+      e.step(19 + Suit.SPADES);
       for (let p = 0; p < 4; p++) {
-        expect(engine.hands[p].length).toBeLessThanOrEqual(6);
+        expect(e.hands[p].length).toBeLessThanOrEqual(6);
       }
     });
 

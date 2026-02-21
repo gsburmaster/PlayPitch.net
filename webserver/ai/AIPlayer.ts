@@ -8,7 +8,8 @@ let session: ort.InferenceSession | null = null;
 let loadAttempted = false;
 
 // Resolve model path relative to project root (ML-Pitch-Theory/)
-const MODEL_DIR = path.resolve(import.meta.dirname, "../../");
+// Compiled location is dist/ai/AIPlayer.js, so go up 3 levels to reach project root
+const MODEL_DIR = path.resolve(import.meta.dirname, "../../../");
 const MODEL_PATH = path.join(MODEL_DIR, "agent_0_longtraining.onnx");
 
 async function getSession(): Promise<ort.InferenceSession | null> {

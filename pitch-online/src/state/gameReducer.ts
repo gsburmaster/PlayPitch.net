@@ -51,6 +51,7 @@ export interface GameState {
   roundEndData: RoundEndData | null;
   gameOverData: GameOverData | null;
   localSeat: number | null;
+  noValidPlayedSeats: number[];
 }
 
 export const initialGameState: GameState = {
@@ -74,6 +75,7 @@ export const initialGameState: GameState = {
   roundEndData: null,
   gameOverData: null,
   localSeat: null,
+  noValidPlayedSeats: [],
 };
 
 export type GameAction =
@@ -163,7 +165,8 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       };
     }
     case "NO_VALID_PLAY":
-      return state;
+      if (state.noValidPlayedSeats.includes(action.seatIndex)) return state;
+      return { ...state, noValidPlayedSeats: [...state.noValidPlayedSeats, action.seatIndex] };
     case "TRICK_RESULT":
       return {
         ...state,
@@ -202,6 +205,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         lastTrickResult: null,
         trickHistory: [],
         roundEndData: null,
+        noValidPlayedSeats: [],
       };
     case "GAME_OVER":
       return { ...state, gameOverData: action.data };

@@ -21,6 +21,7 @@ export function useWebSocket() {
   const pingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const reconnectAttemptRef = useRef(0);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const noValidPlayedSeatsRef = useRef<Set<number>>(new Set());
 
   const cleanup = useCallback(() => {
     if (pingIntervalRef.current) {
@@ -104,6 +105,7 @@ export function useWebSocket() {
         break;
 
       case "game:start":
+        noValidPlayedSeatsRef.current.clear();
         appDispatch({ type: "GAME_STARTED" });
         if (appState.seatIndex !== null) {
           gameDispatch({ type: "SET_LOCAL_SEAT", seatIndex: appState.seatIndex });
@@ -123,20 +125,31 @@ export function useWebSocket() {
         }
         break;
 
-      case "game:turn":
+      case "game:turn": {
+        const turnPlayer = msg.currentPlayer as number;
+        const actionMask = msg.actionMask as number[] | null;
+        if (
+          turnPlayer === appState.seatIndex &&
+          actionMask?.[23] === 1 &&
+          noValidPlayedSeatsRef.current.has(appState.seatIndex)
+        ) {
+          wsRef.current?.send(JSON.stringify({ type: "game:action", action: 23 }));
+          break;
+        }
         gameDispatch({
           type: "TURN_UPDATE",
-          currentPlayer: msg.currentPlayer as number,
+          currentPlayer: turnPlayer,
           phase: msg.phase as 0 | 1 | 2,
-          actionMask: msg.actionMask as number[] | null,
+          actionMask,
           currentBid: msg.currentBid as number,
           currentHighBidder: msg.currentHighBidder as number,
           trumpSuit: msg.trumpSuit as number | null,
         });
-        if ((msg.currentPlayer as number) === appState.seatIndex && msg.actionMask) {
+        if (turnPlayer === appState.seatIndex && actionMask) {
           playSound("yourTurn");
         }
         break;
+      }
 
       case "game:bid":
         gameDispatch({
@@ -178,6 +191,7 @@ export function useWebSocket() {
         break;
 
       case "game:noValidPlay":
+        noValidPlayedSeatsRef.current.add(msg.seatIndex as number);
         gameDispatch({ type: "NO_VALID_PLAY", seatIndex: msg.seatIndex as number });
         break;
 
@@ -212,6 +226,7 @@ export function useWebSocket() {
         break;
 
       case "game:newRound":
+        noValidPlayedSeatsRef.current.clear();
         gameDispatch({
           type: "NEW_ROUND",
           hand: msg.hand as never[],

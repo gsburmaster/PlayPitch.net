@@ -83,7 +83,7 @@ export default function GameTable() {
           isConnected={getSeatInfo(seatOrder[2])?.isConnected ?? false}
           isCurrentPlayer={game.currentPlayer === seatOrder[2]}
           cards={[]}
-          cardCount={game.playerCardCounts[seatOrder[2]]}
+          cardCount={game.noValidPlayedSeats.includes(seatOrder[2]) ? 0 : game.playerCardCounts[seatOrder[2]]}
           bidEntry={game.bidHistory.find((b) => b.seatIndex === seatOrder[2])}
           position="top"
         />
@@ -99,7 +99,7 @@ export default function GameTable() {
           isConnected={getSeatInfo(seatOrder[1])?.isConnected ?? false}
           isCurrentPlayer={game.currentPlayer === seatOrder[1]}
           cards={[]}
-          cardCount={game.playerCardCounts[seatOrder[1]]}
+          cardCount={game.noValidPlayedSeats.includes(seatOrder[1]) ? 0 : game.playerCardCounts[seatOrder[1]]}
           bidEntry={game.bidHistory.find((b) => b.seatIndex === seatOrder[1])}
           position="left"
         />
@@ -115,7 +115,7 @@ export default function GameTable() {
           isConnected={getSeatInfo(seatOrder[3])?.isConnected ?? false}
           isCurrentPlayer={game.currentPlayer === seatOrder[3]}
           cards={[]}
-          cardCount={game.playerCardCounts[seatOrder[3]]}
+          cardCount={game.noValidPlayedSeats.includes(seatOrder[3]) ? 0 : game.playerCardCounts[seatOrder[3]]}
           bidEntry={game.bidHistory.find((b) => b.seatIndex === seatOrder[3])}
           position="right"
         />
@@ -151,8 +151,8 @@ export default function GameTable() {
           isDealer={game.dealer === localSeat}
           isConnected
           isCurrentPlayer={isMyTurn}
-          cards={game.myHand}
-          cardCount={game.myHand.length}
+          cards={game.noValidPlayedSeats.includes(localSeat) ? [] : game.myHand}
+          cardCount={game.noValidPlayedSeats.includes(localSeat) ? 0 : game.myHand.length}
           bidEntry={game.bidHistory.find((b) => b.seatIndex === localSeat)}
           actionMask={game.actionMask}
           isMyTurn={isMyTurn}

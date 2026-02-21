@@ -197,9 +197,6 @@ export class Room {
     this.engine.reset();
 
     // Send game:start to each player with their own hand
-    const hasAI = this.players.some((p) => p.isAI);
-    const aiModelLoaded = hasAI ? getAIModelStatus() : null;
-
     for (const p of this.players) {
       if (!p.isAI) {
         this.send(p.playerId, {
@@ -210,7 +207,7 @@ export class Room {
           phase: this.engine.phase,
           scores: [...this.engine.scores] as [number, number],
           roundNumber: this.engine.numberOfRoundsPlayed,
-          aiModelLoaded,
+          aiModelLoaded: getAIModelStatus(),
         });
       }
     }
@@ -433,7 +430,6 @@ export class Room {
     }
 
     if (this.state === "playing" || this.state === "gameOver") {
-      const hasAI = this.players.some((p) => p.isAI);
       // Send game:start with current hand
       this.send(playerId, {
         type: "game:start",
@@ -443,7 +439,7 @@ export class Room {
         phase: this.engine.phase,
         scores: [...this.engine.scores] as [number, number],
         roundNumber: this.engine.numberOfRoundsPlayed,
-        aiModelLoaded: hasAI ? getAIModelStatus() : null,
+        aiModelLoaded: getAIModelStatus(),
       });
 
       if (this.engine.trumpSuit !== null) {

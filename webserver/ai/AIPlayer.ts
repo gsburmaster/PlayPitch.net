@@ -14,7 +14,10 @@ const MODEL_PATH = path.join(MODEL_DIR, "agent_0_longtraining.onnx");
 async function getSession(): Promise<ort.InferenceSession | null> {
   if (session) return session;
   if (loadAttempted) return null;
+  return loadModel();
+}
 
+async function loadModel(): Promise<ort.InferenceSession | null> {
   loadAttempted = true;
 
   if (!fs.existsSync(MODEL_PATH)) {
@@ -33,10 +36,16 @@ async function getSession(): Promise<ort.InferenceSession | null> {
 }
 
 /**
- * Returns whether the ONNX model is loaded (true), failed/missing (false), or not yet attempted (null).
+ * Load the ONNX model eagerly at server startup.
  */
-export function getAIModelStatus(): boolean | null {
-  if (!loadAttempted) return null;
+export async function initAIModel(): Promise<void> {
+  await loadModel();
+}
+
+/**
+ * Returns whether the ONNX model is loaded (true) or failed/missing (false).
+ */
+export function getAIModelStatus(): boolean {
   return session !== null;
 }
 

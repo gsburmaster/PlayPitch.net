@@ -87,7 +87,7 @@ export interface GameStartBroadcast {
   phase: number;
   scores: [number, number];
   roundNumber: number;
-  aiModelLoaded: boolean | null;
+  aiModelLoaded: boolean;
 }
 
 export interface GameTurnMessage {

@@ -5,6 +5,7 @@ import rateLimit from "express-rate-limit";
 import { RoomManager } from "./rooms/RoomManager.js";
 import { createRoomRoutes } from "./routes/rooms.js";
 import { handleWebSocket } from "./ws/handler.js";
+import { initAIModel } from "./ai/AIPlayer.js";
 
 const app = express();
 const port = 1337;
@@ -72,6 +73,9 @@ wss.on("connection", (ws) => {
   handleWebSocket(ws, roomManager);
 });
 
-server.listen(port, () => {
-  console.log(`Pitch server listening on port ${port}`);
+// Load AI model before accepting connections
+initAIModel().then(() => {
+  server.listen(port, () => {
+    console.log(`Pitch server listening on port ${port}`);
+  });
 });

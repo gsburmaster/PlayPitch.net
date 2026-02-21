@@ -432,6 +432,11 @@ class Agent:
     def remember(self, state, action, reward, next_state, done):
         self.buffer.add(state, action, reward, next_state, done)
 
+    def soft_update_target(self):
+        """Soft-update target network toward q_network."""
+        for target_param, param in zip(self.target_network.parameters(), self.q_network.parameters()):
+            target_param.data.mul_(1.0 - self.config.tau).add_(param.data, alpha=self.config.tau)
+
     def train_step(self, beta: float) -> Optional[Dict[str, float]]:
         if self.buffer.size < self.config.batch_size:
             return None
@@ -469,10 +474,6 @@ class Agent:
         # Update priorities
         self.buffer.update_priorities(indices, td_errors.detach().cpu().numpy())
 
-        # Soft target update (in-place to avoid intermediate tensor allocations)
-        for target_param, param in zip(self.target_network.parameters(), self.q_network.parameters()):
-            target_param.data.mul_(1.0 - self.config.tau).add_(param.data, alpha=self.config.tau)
-
         return {
             "loss": loss.item(),
             "q_mean": current_q.mean().item(),
@@ -502,6 +503,8 @@ class PitchEnvWrapper(gym.Wrapper):
     def step(self, action, current_obs):
         obs, reward, terminated, truncated, info = self.env.step(action, current_obs)
         shaped_reward = reward * self.reward_scale
+        if "rewards_both" in info:
+            info["rewards_both"] = [r * self.reward_scale for r in info["rewards_both"]]
         return obs, shaped_reward, terminated, truncated, info
 
 
@@ -526,6 +529,11 @@ class ParallelGameManager:
         self.done = [True] * num_envs
         self.episode_rewards: List[List[float]] = [[0.0, 0.0] for _ in range(num_envs)]
 
+        # Deferred transitions: per-game, per-team pending (state, action, reward)
+        self.pending: List[List[Optional[tuple]]] = [[None, None] for _ in range(num_envs)]
+        # Accumulated rewards per team between actions (mirrors vectorized mode)
+        self.pending_reward: List[List[float]] = [[0.0, 0.0] for _ in range(num_envs)]
+
         # Per-game noisy seats (re-rolled on reset)
         self.noisy_seat_team0 = np.zeros(num_envs, dtype=np.int32)
         self.noisy_seat_team1 = np.zeros(num_envs, dtype=np.int32)
@@ -545,6 +553,8 @@ class ParallelGameManager:
                 self.obs[i], _ = self.envs[i].reset(seed=seed)
                 self.done[i] = False
                 self.episode_rewards[i] = [0.0, 0.0]
+                self.pending[i] = [None, None]
+                self.pending_reward[i] = [0.0, 0.0]
                 self.noisy_seat_team0[i] = np.random.choice([0, 2])
                 self.noisy_seat_team1[i] = np.random.choice([1, 3])
                 self.episodes_started += 1
@@ -593,18 +603,40 @@ class ParallelGameManager:
         env = self.envs[game_i]
         obs = self.obs[game_i]
         state = flatten_observation(obs)
-
-        next_obs, reward, done, _, _ = env.step(action, obs)
-        next_state = flatten_observation(next_obs)
-
         acting_agent = self.agent if team == 0 else self.agent_opp
-        acting_agent.remember(state, action, reward, next_state, done)
+
+        # Finalize previous pending transition for this team —
+        # current obs is from this team's perspective (correct next_state)
+        if self.pending[game_i][team] is not None:
+            prev_state, prev_action, _ = self.pending[game_i][team]
+            acting_agent.remember(prev_state, prev_action,
+                                  self.pending_reward[game_i][team], state, False)
+            self.pending_reward[game_i][team] = 0.0
+
+        next_obs, reward, done, _, info = env.step(action, obs)
+
+        # Accumulate both teams' rewards
+        rewards_both = info["rewards_both"]
+        self.pending_reward[game_i][0] += rewards_both[0]
+        self.pending_reward[game_i][1] += rewards_both[1]
+
+        # Store as pending (finalized next time this team acts, or at game end)
+        self.pending[game_i][team] = (state, action, reward)
 
         self.obs[game_i] = next_obs
         self.episode_rewards[game_i][team] += reward
 
         if done:
             self.done[game_i] = True
+            # Finalize all pending transitions at game end
+            terminal_state = flatten_observation(next_obs)
+            for t in [0, 1]:
+                if self.pending[game_i][t] is not None:
+                    prev_state, prev_action, _ = self.pending[game_i][t]
+                    a = self.agent if t == 0 else self.agent_opp
+                    a.remember(prev_state, prev_action,
+                               self.pending_reward[game_i][t], terminal_state, True)
+                    self.pending[game_i][t] = None
             completed.append(self.episode_rewards[game_i][0])
 
 
@@ -958,43 +990,52 @@ def train(config: TrainingConfig):
         noisy_seat_team0 = np.random.choice([0, 2])
         noisy_seat_team1 = np.random.choice([1, 3])
 
+        # Deferred transitions: store (state, action, reward) when a team
+        # acts, finalize with correct next_state when that team acts again.
+        pending = [None, None]  # per team
+        # Accumulate rewards for both teams between actions — ensures the
+        # non-acting team receives game-end bonuses and round-end deltas.
+        pending_reward = [0.0, 0.0]
+
         while not done:
             cp = env.env.current_player
             state = flatten_observation(obs)
             team = cp % 2
+            acting_agent = agent if team == 0 else agent_opp
+
+            # Finalize previous pending transition for this team —
+            # current obs is from this team's perspective (correct next_state)
+            if pending[team] is not None:
+                prev_state, prev_action, _ = pending[team]
+                acting_agent.remember(prev_state, prev_action, pending_reward[team], state, False)
+                pending_reward[team] = 0.0
 
             # Teammate noise: partner seat occasionally plays randomly
             noisy_seat = noisy_seat_team0 if team == 0 else noisy_seat_team1
             use_noise = (cp == noisy_seat and
                          np.random.rand() < config.teammate_noise)
 
-            if team == 0:
-                if use_noise:
-                    valid = np.where(obs["action_mask"] == 1)[0]
-                    action = int(np.random.choice(valid))
-                else:
-                    action = agent.act(state, obs["action_mask"])
+            if use_noise:
+                valid = np.where(obs["action_mask"] == 1)[0]
+                action = int(np.random.choice(valid))
             else:
-                if use_noise:
-                    valid = np.where(obs["action_mask"] == 1)[0]
-                    action = int(np.random.choice(valid))
-                else:
-                    action = agent_opp.act(state, obs["action_mask"])
+                action = acting_agent.act(state, obs["action_mask"])
 
-            next_obs, reward, done, _, _ = env.step(action, obs)
-            next_state = flatten_observation(next_obs)
+            next_obs, reward, done, _, info = env.step(action, obs)
 
-            # Store experience for the acting team's agent
-            if team == 0:
-                agent.remember(state, action, reward, next_state, done)
-            else:
-                # Reward is already from acting team's perspective
-                agent_opp.remember(state, action, reward, next_state, done)
+            # Accumulate both teams' rewards
+            rewards_both = info["rewards_both"]
+            pending_reward[0] += rewards_both[0]
+            pending_reward[1] += rewards_both[1]
+
+            # Store as pending (finalized next time this team acts, or at game end)
+            pending[team] = (state, action, reward)
 
             # Train both agents
             if global_step % config.replay_freq == 0:
                 metrics = agent.train_step(beta)
                 if metrics:
+                    agent.soft_update_target()
                     recent_losses.append(metrics["loss"])
                     recent_q_means.append(metrics["q_mean"])
                     if writer and global_step % 100 == 0:
@@ -1003,13 +1044,24 @@ def train(config: TrainingConfig):
                         writer.add_scalar("agent/beta", beta, global_step)
 
                 opp_metrics = agent_opp.train_step(beta)
-                if opp_metrics and writer and global_step % 100 == 0:
-                    for k, v in opp_metrics.items():
-                        writer.add_scalar(f"opponent/{k}", v, global_step)
+                if opp_metrics:
+                    agent_opp.soft_update_target()
+                    if writer and global_step % 100 == 0:
+                        for k, v in opp_metrics.items():
+                            writer.add_scalar(f"opponent/{k}", v, global_step)
 
             obs = next_obs
             episode_reward[team] += reward
             global_step += 1
+
+        # Finalize remaining pending transitions at game end.
+        # For terminal transitions next_q is zeroed, so next_state is irrelevant.
+        terminal_state = flatten_observation(obs)
+        for t in [0, 1]:
+            if pending[t] is not None:
+                prev_state, prev_action, _ = pending[t]
+                a = agent if t == 0 else agent_opp
+                a.remember(prev_state, prev_action, pending_reward[t], terminal_state, True)
 
         recent_rewards.append(episode_reward[0])
 
@@ -1060,7 +1112,8 @@ def train(config: TrainingConfig):
             print(f"  Evaluating at episode {episode}...")
 
             # vs Random
-            eval_random = evaluate(agent, config, config.eval_games, None, device)
+            eval_random = evaluate(agent, config, config.eval_games, None, device,
+                                   win_threshold=threshold)
             print(f"    vs Random:  WR={eval_random['win_rate']:.1%}  "
                   f"Margin={eval_random['avg_margin']:.1f}  "
                   f"Len={eval_random['avg_length']:.0f}")
@@ -1068,7 +1121,8 @@ def train(config: TrainingConfig):
             # vs Pool latest
             if opponent_pool.pool:
                 latest_opp = opponent_pool.pool[-1]["weights"]
-                eval_pool = evaluate(agent, config, config.eval_games, latest_opp, device)
+                eval_pool = evaluate(agent, config, config.eval_games, latest_opp, device,
+                                     win_threshold=threshold)
                 print(f"    vs Pool:    WR={eval_pool['win_rate']:.1%}  "
                       f"Margin={eval_pool['avg_margin']:.1f}")
             else:
@@ -1224,22 +1278,34 @@ def train_parallel(config: TrainingConfig):
                 agent_opp.scheduler.step()
 
         # --- Decoupled training ---
+        # Each step_all produces ~num_envs transitions. Train proportionally
+        # so the gradient-to-data ratio matches serial mode (1 update per
+        # replay_freq transitions).
         train_accumulator += num_envs
-        if train_accumulator >= config.replay_freq * num_envs:
-            train_accumulator = 0
+        metrics = None
+        did_train = False
+        while train_accumulator >= config.replay_freq:
+            train_accumulator -= config.replay_freq
             metrics = agent.train_step(beta)
             if metrics:
+                did_train = True
                 recent_losses.append(metrics["loss"])
                 recent_q_means.append(metrics["q_mean"])
-                if writer and global_step % (100 * num_envs) < num_envs:
-                    for k, v in metrics.items():
-                        writer.add_scalar(f"agent/{k}", v, global_step)
-                    writer.add_scalar("agent/beta", beta, global_step)
+            agent_opp.train_step(beta)
 
-            opp_metrics = agent_opp.train_step(beta)
-            if opp_metrics and writer and global_step % (100 * num_envs) < num_envs:
-                for k, v in opp_metrics.items():
-                    writer.add_scalar(f"opponent/{k}", v, global_step)
+        # Soft target update once per step_all (not per train_step) to
+        # prevent tau from compounding across the ~N/replay_freq updates.
+        # Note: serial mode updates once per train_step, so the target network
+        # lags proportionally more here — this is intentional and reasonable.
+        if did_train:
+            agent.soft_update_target()
+            agent_opp.soft_update_target()
+
+        # TensorBoard logging (once per step_all, not per train step)
+        if writer and metrics and global_step % (100 * num_envs) < num_envs:
+            for k, v in metrics.items():
+                writer.add_scalar(f"agent/{k}", v, global_step)
+            writer.add_scalar("agent/beta", beta, global_step)
 
         # --- Episode-boundary events (fire when crossing thresholds) ---
 
@@ -1289,7 +1355,8 @@ def train_parallel(config: TrainingConfig):
             print(f"  Evaluating at episode {completed_episodes}...")
 
             eval_random = evaluate_parallel(
-                agent, config, config.eval_games, None, device)
+                agent, config, config.eval_games, None, device,
+                win_threshold=threshold)
             print(f"    vs Random:  WR={eval_random['win_rate']:.1%}  "
                   f"Margin={eval_random['avg_margin']:.1f}  "
                   f"Len={eval_random['avg_length']:.0f}")
@@ -1297,7 +1364,8 @@ def train_parallel(config: TrainingConfig):
             if opponent_pool.pool:
                 latest_opp = opponent_pool.pool[-1]["weights"]
                 eval_pool = evaluate_parallel(
-                    agent, config, config.eval_games, latest_opp, device)
+                    agent, config, config.eval_games, latest_opp, device,
+                    win_threshold=threshold)
                 print(f"    vs Pool:    WR={eval_pool['win_rate']:.1%}  "
                       f"Margin={eval_pool['avg_margin']:.1f}")
             else:
@@ -1397,6 +1465,12 @@ def train_vectorized(config: TrainingConfig):
     # Pending rewards: accumulate rewards for each team between their actions
     pending_rewards = torch.zeros(N, 2, device=device)
 
+    # Deferred transition buffers: store the observation and action when each
+    # team acts, finalize with correct next_state when that team acts again.
+    deferred_obs = torch.zeros(2, N, 119, device=device)
+    deferred_actions = torch.zeros(2, N, dtype=torch.long, device=device)
+    deferred_valid = torch.zeros(2, N, dtype=torch.bool, device=device)
+
     start_time = time.time()
     completed_episodes = start_episode
     recent_rewards: deque = deque(maxlen=1000)
@@ -1442,6 +1516,7 @@ def train_vectorized(config: TrainingConfig):
                 completed_episodes += 1
             episode_rewards[just_done] = 0.0
             pending_rewards[just_done] = 0.0
+            deferred_valid[:, just_done] = False
             env.reset_done()
 
         # --- Get observations and masks ---
@@ -1493,71 +1568,108 @@ def train_vectorized(config: TrainingConfig):
                 noisy_actions = torch.multinomial(team_masks[is_noisy], 1).squeeze(1)
                 actions[noisy_indices] = noisy_actions
 
-        # --- Step the vectorized env ---
-        prev_obs = obs  # already a fresh tensor from get_observations() torch.cat
-        next_obs, rewards_both, dones = env.step(actions)
-
-        # Accumulate rewards for both teams (scaled)
-        pending_rewards += rewards_both * config.reward_scale
-
-        # Accumulate episode rewards (for team 0 acting games)
-        team0_acting = (acting_team == 0) & ~just_done
-        episode_rewards[team0_acting] += pending_rewards[team0_acting, 0]
-
-        # --- Store transitions in replay buffer (CPU transfer) ---
-        # Sync GPU before CPU transfer to prevent async memory corruption
+        # --- Finalize deferred transitions for teams acting again ---
+        # Current obs is from the acting team's perspective → correct next_state
+        # for that team's previously stored transition.
         if device.type == 'mps':
             torch.mps.synchronize()
         elif device.type == 'cuda':
             torch.cuda.synchronize()
 
-        active = ~just_done
         for team_id in [0, 1]:
-            team_active = active & (acting_team == team_id)
-            if not team_active.any():
+            finalize = (acting_team == team_id) & deferred_valid[team_id] & ~just_done
+            if not finalize.any():
                 continue
             acting_agent = agent if team_id == 0 else agent_opp
+            K = finalize.sum().item()
 
-            # Use accumulated pending rewards for this team, then reset
-            team_rewards = pending_rewards[:, team_id].contiguous()
-
-            # Single D2H transfer: concatenate on-device, transfer once, split on CPU
             bundle = torch.cat([
-                prev_obs[team_active],                              # (K, 119)
-                actions[team_active].unsqueeze(1).float(),          # (K, 1)
-                team_rewards[team_active].unsqueeze(1),             # (K, 1)
-                next_obs[team_active],                              # (K, 119)
-                dones[team_active].unsqueeze(1).float(),            # (K, 1)
-            ], dim=1).cpu().numpy().copy()                          # (K, 241)
+                deferred_obs[team_id, finalize],                           # (K, 119) saved state
+                deferred_actions[team_id, finalize].unsqueeze(1).float(),  # (K, 1)
+                pending_rewards[finalize, team_id].unsqueeze(1),           # (K, 1) accumulated reward
+                obs[finalize],                                             # (K, 119) correct next_state
+                torch.zeros(K, 1, device=device),                          # (K, 1) not done
+            ], dim=1).cpu().numpy().copy()
 
-            s = bundle[:, :119]
-            a = bundle[:, 119].astype(np.int64)
-            r = bundle[:, 120]
-            ns = bundle[:, 121:240]
-            d = bundle[:, 240].astype(bool)
+            acting_agent.buffer.add_batch(
+                bundle[:, :119], bundle[:, 119].astype(np.int64),
+                bundle[:, 120], bundle[:, 121:240], bundle[:, 240].astype(bool))
+            pending_rewards[finalize, team_id] = 0.0
+            deferred_valid[team_id, finalize] = False
 
-            acting_agent.buffer.add_batch(s, a, r, ns, d)
-            pending_rewards[team_active, team_id] = 0.0
+        # --- Step the vectorized env ---
+        prev_obs = obs
+        next_obs, rewards_both, dones = env.step(actions)
+
+        # Accumulate rewards for both teams (scaled)
+        pending_rewards += rewards_both * config.reward_scale
+
+        # Episode reward tracking
+        episode_rewards += (rewards_both[:, 0] * config.reward_scale) * (~just_done).float()
+
+        # --- Store new deferred state for acting teams ---
+        for team_id in [0, 1]:
+            team_acting = (acting_team == team_id) & ~just_done
+            if not team_acting.any():
+                continue
+            deferred_obs[team_id, team_acting] = prev_obs[team_acting]
+            deferred_actions[team_id, team_acting] = actions[team_acting]
+            deferred_valid[team_id, team_acting] = True
+
+        # --- Finalize deferred transitions for newly done games ---
+        newly_done = dones & ~just_done
+        if newly_done.any():
+            for team_id in [0, 1]:
+                fin = newly_done & deferred_valid[team_id]
+                if not fin.any():
+                    continue
+                acting_agent = agent if team_id == 0 else agent_opp
+                K = fin.sum().item()
+
+                bundle = torch.cat([
+                    deferred_obs[team_id, fin],
+                    deferred_actions[team_id, fin].unsqueeze(1).float(),
+                    pending_rewards[fin, team_id].unsqueeze(1),
+                    next_obs[fin],                                     # irrelevant (done=True)
+                    torch.ones(K, 1, device=device),                   # done=True
+                ], dim=1).cpu().numpy().copy()
+
+                acting_agent.buffer.add_batch(
+                    bundle[:, :119], bundle[:, 119].astype(np.int64),
+                    bundle[:, 120], bundle[:, 121:240], bundle[:, 240].astype(bool))
+                deferred_valid[team_id, fin] = False
 
         global_step += N
 
         # --- Decoupled training ---
+        # Each iteration produces ~N transitions. Train proportionally
+        # so the gradient-to-data ratio matches serial mode (1 update per
+        # replay_freq transitions).
         train_accumulator += N
-        if train_accumulator >= config.replay_freq * N:
-            train_accumulator = 0
+        metrics = None
+        did_train = False
+        while train_accumulator >= config.replay_freq:
+            train_accumulator -= config.replay_freq
             metrics = agent.train_step(beta)
             if metrics:
+                did_train = True
                 recent_losses.append(metrics["loss"])
                 recent_q_means.append(metrics["q_mean"])
-                if writer and global_step % (100 * N) < N:
-                    for k, v in metrics.items():
-                        writer.add_scalar(f"agent/{k}", v, global_step)
-                    writer.add_scalar("agent/beta", beta, global_step)
+            agent_opp.train_step(beta)
 
-            opp_metrics = agent_opp.train_step(beta)
-            if opp_metrics and writer and global_step % (100 * N) < N:
-                for k, v in opp_metrics.items():
-                    writer.add_scalar(f"opponent/{k}", v, global_step)
+        # Soft target update once per iteration (not per train_step) to
+        # prevent tau from compounding across the ~N/replay_freq updates.
+        # Note: serial mode updates once per train_step, so the target network
+        # lags proportionally more here — this is intentional and reasonable.
+        if did_train:
+            agent.soft_update_target()
+            agent_opp.soft_update_target()
+
+        # TensorBoard logging (once per iteration, not per train step)
+        if writer and metrics and global_step % (100 * N) < N:
+            for k, v in metrics.items():
+                writer.add_scalar(f"agent/{k}", v, global_step)
+            writer.add_scalar("agent/beta", beta, global_step)
 
         # --- LR scheduler: step per completed episode ---
         new_completions = just_done.sum().item()

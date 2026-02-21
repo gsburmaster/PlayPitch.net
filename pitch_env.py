@@ -282,10 +282,14 @@ class PitchEnv(gym.Env):
         terminated = self._check_game_end()
         truncated = False
         reward = self._calculate_reward(team, scores_before)
+        reward_other = self._calculate_reward(1 - team, scores_before)
         observation = self._get_observation()
-        info = {}
-        if (len(observation) != len(current_obs)):
-            print('we got issues')
+        info = {
+            "rewards_both": [
+                reward if team == 0 else reward_other,
+                reward_other if team == 0 else reward,
+            ]
+        }
         return observation, reward, terminated, truncated, info
 
     def _create_deck(self):
@@ -460,15 +464,23 @@ class PitchEnv(gym.Env):
 
     def _calculate_reward(self, team, scores_before):
         other_team = 1 - team
-        # Trick-level: points my team won minus points other team won
-        reward = self.last_trick_points[team] - self.last_trick_points[other_team]
-        # Round-end: actual score delta captures set penalties, moon bonuses, etc.
-        # e.g. bid 7 and only took 4 → scores drop by 7, reward reflects that
+        trick_reward = self.last_trick_points[team] - self.last_trick_points[other_team]
         score_delta = (self.scores[team] - scores_before[team]) - (self.scores[other_team] - scores_before[other_team])
-        reward += score_delta
-        # Game-end bonus
+        if score_delta != 0:
+            # Round-end: score_delta already includes trick points (via
+            # round_scores) plus bid penalties/bonuses — use it as-is
+            reward = score_delta
+        else:
+            # Mid-round: per-trick feedback only
+            reward = trick_reward
+        # Game-end bonus — use team arg, not self.current_player (which has
+        # already been advanced by the action handler)
         if self._check_game_end():
-            reward += 100 if self._check_current_player_win() else -100
+            t = self.win_threshold
+            my_score, opp_score = self.scores[team], self.scores[other_team]
+            bidder_team = self.current_high_bidder % 2
+            i_win = (my_score - opp_score >= t) or (my_score >= t and bidder_team == team)
+            reward += 100 if i_win else -100
         return reward
 
     def _get_observation(self):

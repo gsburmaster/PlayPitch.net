@@ -64,7 +64,7 @@ class PitchEnv(gym.Env):
         self.action_space = gym.spaces.Discrete(self.num_actions)
         self.observation_space = gym.spaces.Dict({
             'hand': gym.spaces.Box(low=0, high=15, shape=(10, 2), dtype=np.int8), # possible to have up to ten cards
-            'tricks': gym.spaces.Box(low=0, high=15, shape=(4, 2), dtype=np.int8), 
+            'tricks': gym.spaces.Box(low=0, high=15, shape=(4, 2), dtype=np.int8),
             'round_scores': gym.spaces.Box(low=0,high=10,shape=(2,), dtype=np.int8), # temporary score used to evaluate if you made your bid or not
             'played_cards': gym.spaces.Box(low=0, high=15, shape=(24, 2), dtype=np.int8),
             'scores': gym.spaces.Box(low=-32768, high=32767, shape=(2,), dtype=np.int16),
@@ -78,7 +78,8 @@ class PitchEnv(gym.Env):
             'player_cards_taken': gym.spaces.Box(low=-1,high=10, shape=(4,),dtype=np.int8),
             'trump_suit': gym.spaces.Discrete(5),  # 0-3 for suits, 4 for no trump
             'phase': gym.spaces.Discrete(3),  # 0: bidding, 1: choosing suit, 2: playing
-            'action_mask': gym.spaces.Box(low=0, high=1, shape=(self.num_actions,), dtype=np.int8)
+            'action_mask': gym.spaces.Box(low=0, high=1, shape=(self.num_actions,), dtype=np.int8),
+            'derived_features': gym.spaces.Box(low=0, high=1, shape=(10,), dtype=np.float32),
         })
         self.reset()
 
@@ -92,7 +93,7 @@ class PitchEnv(gym.Env):
         self.action_space = gym.spaces.Discrete(self.num_actions)
         self.observation_space = gym.spaces.Dict({
             'hand': gym.spaces.Box(low=0, high=15, shape=(10, 2), dtype=np.int8), # possible to have up to ten cards
-            'tricks': gym.spaces.Box(low=0, high=15, shape=(4, 2), dtype=np.int8), 
+            'tricks': gym.spaces.Box(low=0, high=15, shape=(4, 2), dtype=np.int8),
             'round_scores': gym.spaces.Box(low=0,high=10,shape=(2,), dtype=np.int8), # temporary score used to evaluate if you made your bid or not
             'played_cards': gym.spaces.Box(low=0, high=15, shape=(24, 2), dtype=np.int8),
             'scores': gym.spaces.Box(low=-32768, high=32767, shape=(2,), dtype=np.int16),
@@ -106,7 +107,8 @@ class PitchEnv(gym.Env):
             'player_cards_taken': gym.spaces.Box(low=-1,high=10, shape=(4,),dtype=np.int8),
             'trump_suit': gym.spaces.Discrete(5),  # 0-3 for suits, 4 for no trump
             'phase': gym.spaces.Discrete(3),  # 0: bidding, 1: choosing suit, 2: playing
-            'action_mask': gym.spaces.Box(low=0, high=1, shape=(self.num_actions,), dtype=np.int8)
+            'action_mask': gym.spaces.Box(low=0, high=1, shape=(self.num_actions,), dtype=np.int8),
+            'derived_features': gym.spaces.Box(low=0, high=1, shape=(10,), dtype=np.float32),
         })
         try:
             self.deck = deck
@@ -504,8 +506,70 @@ class PitchEnv(gym.Env):
             'phase': self.phase.value if isinstance(self.phase, Phase) else self.phase,
             'number_of_rounds_played': self.number_of_rounds_played,
             'player_cards_taken': np.array(self.player_cards_taken, dtype=np.int8),
-            'action_mask': self._get_action_mask()
+            'action_mask': self._get_action_mask(),
+            'derived_features': self._get_derived_features(),
         }
+
+    def _get_derived_features(self) -> np.ndarray:
+        """Compute 10 strategic features, all normalized to [0, 1]."""
+        feats = np.zeros(10, dtype=np.float32)
+        cp = self.current_player
+        my_team = cp % 2
+        is_playing = (self.phase == Phase.PLAYING)
+
+        if is_playing:
+            hand = self.hands[cp]
+            trump_cards = [c for c in hand if self._is_valid_play(c)]
+            trump_count = len(trump_cards)
+
+            # 0: trump_card_count
+            feats[0] = trump_count / 10.0
+
+            # 1: trump_point_count
+            trump_pts = sum(self._card_points(c) for c in trump_cards)
+            feats[1] = trump_pts / 7.0
+
+            # 2: void_in_trump
+            feats[2] = 1.0 if trump_count == 0 else 0.0
+
+            # 3: highest_trump_rank (normalized rank 2-15 → 0-1)
+            if trump_cards:
+                max_rank = max(c.rank for c in trump_cards)
+                feats[3] = (max_rank - 2) / 13.0
+            else:
+                feats[3] = 0.0
+
+            # 4: can_win_trick (1 if leading OR any trump beats current winner)
+            if not self.current_trick:
+                feats[4] = 1.0  # leading
+            else:
+                winner_rank = max(self.current_trick,
+                                  key=lambda t: (self._is_valid_play(t[0]), t[0].rank))[0].rank
+                feats[4] = 1.0 if any(c.rank > winner_rank for c in trump_cards) else 0.0
+
+            # 5: partner_winning
+            if self.current_trick:
+                winner_player = max(self.current_trick,
+                                    key=lambda t: (self._is_valid_play(t[0]), t[0].rank))[1]
+                feats[5] = 1.0 if winner_player % 2 == my_team else 0.0
+            else:
+                feats[5] = 0.0
+
+        # 6: am_high_bidder (always)
+        feats[6] = 1.0 if self.current_high_bidder == cp else 0.0
+
+        # 7: bid_deficit (always) — max bid is 12 (double moon)
+        feats[7] = max(0.0, self.current_bid - self.round_scores[my_team]) / 12.0
+
+        # 8: tricks_remaining (always) — max hand size is 9 at deal, 6 after fill
+        max_hand = max((len(h) for h in self.hands), default=0)
+        feats[8] = max_hand / 9.0
+
+        # 9: point_cards_remaining (always)
+        total_scored = sum(self.round_scores)
+        feats[9] = 1.0 - min(total_scored, 9) / 9.0
+
+        return feats
 
     def _get_action_mask(self):
         mask = np.zeros(self.num_actions, dtype=np.int8) #17 = shoot moon

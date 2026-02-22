@@ -378,7 +378,8 @@ class VectorizedPitchEnv:
           number_of_rounds_played: 1
           player_cards_taken: (4,) = 4
           action_mask:       (24,) = 24
-          Total: 20 + 48 + 2 + 2 + 12 + 7 + 4 + 24 = 119
+          derived_features:  (10,) = 10
+          Total: 20 + 48 + 2 + 2 + 12 + 7 + 4 + 24 + 10 = 129
         """
         game_idx = torch.arange(self.N, device=self.device)
         cp = self.current_player.long()
@@ -441,6 +442,120 @@ class VectorizedPitchEnv:
         mask = self._get_action_mask()
         mask_flat = mask.float()
 
+        # --- Derived features (10 floats, all [0,1]) ---
+        is_playing = (self.phase == PHASE_PLAYING).float()  # (N,)
+
+        # Current player's hand cards
+        hand_codes = self.hands[game_idx, cp]  # (N, 10)
+        h_suit = card_suit(hand_codes)         # (N, 10) int16
+        h_rank = card_rank(hand_codes)         # (N, 10) int16
+        is_empty_hand = (hand_codes == 0)
+
+        # Trump suit per game: -1 means no trump; clamp to 0 for comparisons
+        ts = self.trump_suit.long()  # (N,)
+
+        # off-jack suit: CLUBS↔SPADES (0↔3), DIAMONDS↔HEARTS (1↔2)
+        off_jack_map = torch.tensor([3, 2, 1, 0], dtype=torch.long, device=self.device)
+        off_jack_suit = torch.where(ts >= 0, off_jack_map[ts.clamp(min=0)],
+                                    torch.full_like(ts, -1))  # (N,)
+
+        # is_trump_card: suit == trump OR rank == 11 (joker) OR off-jack
+        h_suit_long = h_suit.long()  # (N, 10)
+        h_rank_long = h_rank.long()  # (N, 10)
+        ts_exp = ts.unsqueeze(1).expand_as(h_suit_long)   # (N, 10)
+        oj_exp = off_jack_suit.unsqueeze(1).expand_as(h_suit_long)  # (N, 10)
+
+        is_trump_card = (
+            (~is_empty_hand) & (
+                (h_suit_long == ts_exp) |
+                (h_rank_long == 11) |
+                ((h_rank_long == 12) & (h_suit_long == oj_exp))
+            )
+        ).float()  # (N, 10)
+
+        # Points by rank for hand cards
+        points_table = self.points_table.long()  # (16,)
+        h_rank_clamped = h_rank_long.clamp(0, 15)
+        h_pts = points_table[h_rank_clamped].float()  # (N, 10)
+
+        trump_count = is_trump_card.sum(dim=1)                    # (N,)
+        trump_pts = (is_trump_card * h_pts).sum(dim=1)            # (N,)
+
+        # feat 0: trump_card_count
+        feat0 = trump_count / 10.0
+
+        # feat 1: trump_point_count
+        feat1 = trump_pts / 7.0
+
+        # feat 2: void_in_trump
+        feat2 = (trump_count == 0).float()
+
+        # feat 3: highest_trump_rank
+        trump_ranks = torch.where(is_trump_card.bool(), h_rank.float(),
+                                  torch.zeros_like(h_rank.float()))
+        max_trump_rank = trump_ranks.max(dim=1).values  # (N,)
+        feat3 = (max_trump_rank - 2.0).clamp(min=0) / 13.0
+
+        # feat 4: can_win_trick (1 if leading OR any trump rank > current winner rank)
+        # Current winner rank: max over trick slots with valid-play weighting
+        tc_codes = self.trick_cards   # (N, 4)
+        tc_rank_v = card_rank(tc_codes).long()
+        tc_suit_v = card_suit(tc_codes).long()
+        tc_empty_v = (tc_codes == 0)
+        ts_exp4 = ts.unsqueeze(1).expand_as(tc_suit_v)
+        oj_exp4 = off_jack_suit.unsqueeze(1).expand_as(tc_suit_v)
+        is_trump_trick = (
+            (~tc_empty_v) & (
+                (tc_suit_v == ts_exp4) |
+                (tc_rank_v == 11) |
+                ((tc_rank_v == 12) & (tc_suit_v == oj_exp4))
+            )
+        )
+        # effective rank for trick winner calc: trump cards keep rank, others get 0
+        eff_rank = torch.where(is_trump_trick, tc_rank_v.float(),
+                               torch.zeros_like(tc_rank_v.float()))
+        winner_rank = eff_rank.max(dim=1).values   # (N,) — 0 if trick empty
+        trick_empty = tc_empty_v.all(dim=1)        # (N,)
+        can_beat = (trump_ranks.max(dim=1).values > winner_rank)
+        feat4 = torch.where(trick_empty, torch.ones(self.N, device=self.device),
+                            can_beat.float())
+
+        # feat 5: partner_winning
+        # Find who played the winning card
+        tp = self.trick_players  # (N, 4) int8, -1 for empty
+        trick_not_empty = ~tc_empty_v  # (N, 4)
+        # effective rank per slot (0 for empty)
+        winner_slot = eff_rank.argmax(dim=1)  # (N,)
+        winner_player = tp[game_idx, winner_slot]  # (N,) int8
+        partner_winning = (winner_player.long() % 2 == cp % 2).float()
+        # mask: 0 if trick is empty or not PLAYING
+        feat5 = torch.where(trick_empty, torch.zeros(self.N, device=self.device),
+                            partner_winning)
+
+        # feat 6: am_high_bidder (always)
+        feat6 = (self.current_high_bidder == self.current_player).float()
+
+        # feat 7: bid_deficit (always) — max bid is 12 (double moon)
+        my_team = (cp % 2).long()  # (N,) 0 or 1
+        my_round_score = self.round_scores[game_idx, my_team].float()
+        feat7 = (self.current_bid.float() - my_round_score).clamp(min=0) / 12.0
+
+        # feat 8: tricks_remaining (always) — max hand size is 9 at deal, 6 after fill
+        hand_occupied = (self.hands != 0)  # (N, 4, 10)
+        hand_sizes = hand_occupied.sum(dim=2).float()  # (N, 4)
+        feat8 = hand_sizes.max(dim=1).values / 9.0
+
+        # feat 9: point_cards_remaining (always)
+        total_scored = self.round_scores.float().sum(dim=1)  # (N,)
+        feat9 = 1.0 - total_scored.clamp(max=9) / 9.0
+
+        # Stack and apply phase guard (features 0-5 are 0 outside PLAYING)
+        derived = torch.stack([
+            feat0, feat1, feat2, feat3, feat4, feat5,  # phase-gated
+            feat6, feat7, feat8, feat9,                 # always valid
+        ], dim=1)  # (N, 10)
+        derived[:, :6] *= is_playing.unsqueeze(1)
+
         # Concatenate in dict iteration order matching flatten_observation
         obs = torch.cat([
             hand_flat,           # 20
@@ -451,7 +566,8 @@ class VectorizedPitchEnv:
             scalars,             # 7
             pct_flat,            # 4
             mask_flat,           # 24
-        ], dim=1)  # (N, 119)
+            derived,             # 10
+        ], dim=1)  # (N, 129)
         return obs, mask
 
     # ------------------------------------------------------------------

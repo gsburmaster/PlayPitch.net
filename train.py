@@ -102,6 +102,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
+import rule_bot
 from config import TrainingConfig
 from pitch_env import PitchEnv
 
@@ -134,7 +135,7 @@ def get_device(config: TrainingConfig) -> torch.device:
 # ---------------------------------------------------------------------------
 
 def flatten_observation(obs: Dict) -> np.ndarray:
-    out = np.empty(119, dtype=np.float32)
+    out = np.empty(129, dtype=np.float32)
     i = 0
     for value in obs.values():
         if isinstance(value, np.ndarray):
@@ -320,11 +321,11 @@ class PrioritizedReplayBuffer:
 # ---------------------------------------------------------------------------
 
 class DuelingDQN(nn.Module):
-    def __init__(self, input_dim: int = 119, output_dim: int = 24,
-                 backbone_hidden: int = 512, backbone_mid: int = 256,
-                 head_hidden: int = 128):
+    def __init__(self, input_dim: int = 129, output_dim: int = 24,
+                 backbone_hidden: int = 256, backbone_mid: int = 128,
+                 head_hidden: int = 64):
         super().__init__()
-        self.input_bn = nn.BatchNorm1d(input_dim)
+        self.input_ln = nn.LayerNorm(input_dim)
         self.backbone = nn.Sequential(
             nn.Linear(input_dim, backbone_hidden),
             nn.ReLU(),
@@ -350,7 +351,7 @@ class DuelingDQN(nn.Module):
                 nn.init.zeros_(m.bias)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = self.input_bn(x)
+        x = self.input_ln(x)
         features = self.backbone(x)
         value = self.value_stream(features)
         advantage = self.advantage_stream(features)
@@ -530,11 +531,17 @@ class ParallelGameManager:
         self.noisy_seat_team0 = np.zeros(num_envs, dtype=np.int32)
         self.noisy_seat_team1 = np.zeros(num_envs, dtype=np.int32)
 
+        # Games where team 1 uses rule-bot instead of neural net
+        self.rule_bot_games: set = set()
+
         # Track how many episodes have been started (for seeding)
         self.episodes_started = 0
 
-    def step_all(self, threshold: int, base_seed: int) -> List[float]:
+    def step_all(self, threshold: int, base_seed: int,
+                 rule_bot_noise: float = None) -> List[float]:
         """Advance all games by one step. Returns completed episode rewards (team 0)."""
+        if rule_bot_noise is None:
+            rule_bot_noise = self.config.rule_bot_noise
         completed = []
 
         # Reset finished games
@@ -547,6 +554,7 @@ class ParallelGameManager:
                 self.episode_rewards[i] = [0.0, 0.0]
                 self.noisy_seat_team0[i] = np.random.choice([0, 2])
                 self.noisy_seat_team1[i] = np.random.choice([1, 3])
+                self.rule_bot_games.add(i)  # always rule bot for team 1
                 self.episodes_started += 1
 
         # Group by acting team (0 or 1)
@@ -568,17 +576,41 @@ class ParallelGameManager:
                 if cp == noisy_seat and np.random.rand() < self.config.teammate_noise:
                     noise_indices.add(i)
 
-            # Batched inference for non-noisy games
-            batch_indices = [i for i in game_indices if i not in noise_indices]
-            if batch_indices:
-                states = np.array([flatten_observation(self.obs[i])
-                                   for i in batch_indices])
-                masks = np.array([self.obs[i]["action_mask"]
-                                  for i in batch_indices])
-                actions = acting_agent.act_batch(states, masks)
+            if team == 1:
+                # Split team-1 games: rule-bot vs neural net
+                rb_indices = [i for i in game_indices
+                              if i in self.rule_bot_games and i not in noise_indices]
+                nn_indices = [i for i in game_indices
+                              if i not in self.rule_bot_games and i not in noise_indices]
 
-                for idx, game_i in enumerate(batch_indices):
-                    self._apply_action(game_i, int(actions[idx]), team, completed)
+                # Rule-bot actions (with optional noise to make bot beatable)
+                for game_i in rb_indices:
+                    if np.random.rand() < rule_bot_noise:
+                        valid = np.where(self.obs[game_i]["action_mask"] == 1)[0]
+                        action = int(np.random.choice(valid))
+                    else:
+                        action = rule_bot.pick_action(self.envs[game_i].env)
+                    self._apply_action(game_i, action, team, completed)
+
+                # Neural net batched inference
+                if nn_indices:
+                    states = np.array([flatten_observation(self.obs[i]) for i in nn_indices])
+                    masks = np.array([self.obs[i]["action_mask"] for i in nn_indices])
+                    actions = acting_agent.act_batch(states, masks)
+                    for idx, game_i in enumerate(nn_indices):
+                        self._apply_action(game_i, int(actions[idx]), team, completed)
+            else:
+                # Team 0: batched inference for non-noisy games
+                batch_indices = [i for i in game_indices if i not in noise_indices]
+                if batch_indices:
+                    states = np.array([flatten_observation(self.obs[i])
+                                       for i in batch_indices])
+                    masks = np.array([self.obs[i]["action_mask"]
+                                      for i in batch_indices])
+                    actions = acting_agent.act_batch(states, masks)
+
+                    for idx, game_i in enumerate(batch_indices):
+                        self._apply_action(game_i, int(actions[idx]), team, completed)
 
             # Random actions for noisy games
             for game_i in noise_indices:
@@ -800,13 +832,51 @@ def evaluate_parallel(agent: Agent, config: TrainingConfig, num_games: int,
     }
 
 
+def evaluate_vs_rulebot(agent: Agent, config: TrainingConfig, num_games: int,
+                        device: torch.device = torch.device("cpu"),
+                        win_threshold: int = 54) -> Dict[str, float]:
+    """Evaluate agent (team 0) against the deterministic rule-bot (team 1)."""
+    wins = 0
+    total_margin = 0.0
+    total_length = 0
+
+    for game in range(num_games):
+        env = PitchEnv(win_threshold=win_threshold)
+        obs, _ = env.reset(seed=config.seed + 2_000_000 + game)
+        done = False
+        steps = 0
+
+        while not done:
+            state = flatten_observation(obs)
+            cp = env.current_player
+            if cp % 2 == 0:
+                action = agent.act(state, obs["action_mask"], greedy=True)
+            else:
+                action = rule_bot.pick_action(env)
+            obs, _, done, _, _ = env.step(action, obs)
+            steps += 1
+
+        margin = env.scores[0] - env.scores[1]
+        if margin > 0:
+            wins += 1
+        total_margin += margin
+        total_length += steps
+
+    n = max(num_games, 1)
+    return {
+        "win_rate": wins / n,
+        "avg_margin": total_margin / n,
+        "avg_length": total_length / n,
+    }
+
+
 # ---------------------------------------------------------------------------
 # ONNX Export
 # ---------------------------------------------------------------------------
 
 def export_onnx(model: DuelingDQN, path: str, device: torch.device, opset: int = 17):
     model.eval()
-    dummy = torch.zeros(1, 119, device=device)
+    dummy = torch.zeros(1, 129, device=device)
     torch.onnx.export(
         model, dummy, path,
         input_names=["state"],
@@ -864,8 +934,9 @@ def load_checkpoint(path: str, agent: Agent, agent_opp: Agent,
     agent_opp.scheduler.load_state_dict(ckpt["opp_scheduler_state"])
     agent_opp.epsilon = ckpt["opp_epsilon"]
 
-    for weights, elo in ckpt.get("opponent_pool", []):
-        opponent_pool.pool.append({"weights": weights, "elo": elo})
+    if opponent_pool.max_size > 0:
+        for weights, elo in ckpt.get("opponent_pool", []):
+            opponent_pool.pool.append({"weights": weights, "elo": elo})
 
     random.setstate(ckpt["rng_python"])
     np.random.set_state(ckpt["rng_numpy"])
@@ -914,6 +985,8 @@ def train(config: TrainingConfig):
 
     # Best model tracking (sorted by win_rate desc)
     best_models: List[Tuple[float, str]] = []
+    if config.resume and best_win_rate > 0:
+        best_models.append((best_win_rate, config.resume))
 
     start_time = time.time()
     recent_rewards = deque(maxlen=1000)
@@ -939,6 +1012,10 @@ def train(config: TrainingConfig):
         beta = config.per_beta_start + (config.per_beta_end - config.per_beta_start) * \
             (episode / config.num_episodes)
 
+        # Graduated rule-bot noise
+        ep_noise = config.rule_bot_noise + (config.rule_bot_noise_end - config.rule_bot_noise) * \
+            (episode / config.num_episodes)
+
         # Self-play: occasionally use opponent from pool for team 1
         use_pool_opponent = False
         pool_entry = None
@@ -948,6 +1025,7 @@ def train(config: TrainingConfig):
                 agent_opp.q_network.load_state_dict(pool_entry["weights"])
                 use_pool_opponent = True
 
+        use_rule_bot = True  # always use rule bot for team 1
         env = PitchEnvWrapper(PitchEnv(win_threshold=threshold),
                               config.reward_scale, config.bid_bonus)
         obs, _ = env.reset(seed=config.seed + episode)
@@ -978,6 +1056,12 @@ def train(config: TrainingConfig):
                 if use_noise:
                     valid = np.where(obs["action_mask"] == 1)[0]
                     action = int(np.random.choice(valid))
+                elif use_rule_bot:
+                    if np.random.rand() < ep_noise:
+                        valid = np.where(obs["action_mask"] == 1)[0]
+                        action = int(np.random.choice(valid))
+                    else:
+                        action = rule_bot.pick_action(env.env)
                 else:
                     action = agent_opp.act(state, obs["action_mask"])
 
@@ -1065,6 +1149,12 @@ def train(config: TrainingConfig):
                   f"Margin={eval_random['avg_margin']:.1f}  "
                   f"Len={eval_random['avg_length']:.0f}")
 
+            # vs RuleBot
+            eval_rb = evaluate_vs_rulebot(agent, config, config.eval_games,
+                                          device, threshold)
+            print(f"    vs RuleBot: WR={eval_rb['win_rate']:.1%}  "
+                  f"Margin={eval_rb['avg_margin']:.1f}")
+
             # vs Pool latest
             if opponent_pool.pool:
                 latest_opp = opponent_pool.pool[-1]["weights"]
@@ -1077,6 +1167,8 @@ def train(config: TrainingConfig):
             if writer:
                 for k, v in eval_random.items():
                     writer.add_scalar(f"eval_random/{k}", v, episode)
+                for k, v in eval_rb.items():
+                    writer.add_scalar(f"eval_rulebot/{k}", v, episode)
                 for k, v in eval_pool.items():
                     writer.add_scalar(f"eval_pool/{k}", v, episode)
 
@@ -1164,6 +1256,8 @@ def train_parallel(config: TrainingConfig):
             config.resume, agent, agent_opp, opponent_pool, device)
 
     best_models: List[Tuple[float, str]] = []
+    if config.resume and best_win_rate > 0:
+        best_models.append((best_win_rate, config.resume))
 
     def make_env(threshold):
         return PitchEnvWrapper(PitchEnv(win_threshold=threshold),
@@ -1201,6 +1295,9 @@ def train_parallel(config: TrainingConfig):
 
         beta = config.per_beta_start + (config.per_beta_end - config.per_beta_start) * progress
 
+        # Graduated rule-bot noise: linearly decay from noise to noise_end
+        noise = config.rule_bot_noise + (config.rule_bot_noise_end - config.rule_bot_noise) * progress
+
         # --- Self-play: swap opponent weights periodically ---
         # (applied once per step_all; all in-flight games share the same opponent)
         if opponent_pool.pool and np.random.rand() < 0.5 / num_envs:
@@ -1209,7 +1306,7 @@ def train_parallel(config: TrainingConfig):
                 agent_opp.q_network.load_state_dict(pool_entry["weights"])
 
         # --- Step all parallel games ---
-        finished_rewards = manager.step_all(threshold, config.seed)
+        finished_rewards = manager.step_all(threshold, config.seed, rule_bot_noise=noise)
         global_step += num_envs
 
         for reward in finished_rewards:
@@ -1220,8 +1317,7 @@ def train_parallel(config: TrainingConfig):
         for _ in finished_rewards:
             if agent.buffer.size >= config.batch_size:
                 agent.scheduler.step()
-            if agent_opp.buffer.size >= config.batch_size:
-                agent_opp.scheduler.step()
+            # agent_opp is frozen — no scheduler step
 
         # --- Decoupled training ---
         train_accumulator += num_envs
@@ -1235,11 +1331,7 @@ def train_parallel(config: TrainingConfig):
                     for k, v in metrics.items():
                         writer.add_scalar(f"agent/{k}", v, global_step)
                     writer.add_scalar("agent/beta", beta, global_step)
-
-            opp_metrics = agent_opp.train_step(beta)
-            if opp_metrics and writer and global_step % (100 * num_envs) < num_envs:
-                for k, v in opp_metrics.items():
-                    writer.add_scalar(f"opponent/{k}", v, global_step)
+            # agent_opp is frozen — no train_step
 
         # --- Episode-boundary events (fire when crossing thresholds) ---
 
@@ -1294,6 +1386,11 @@ def train_parallel(config: TrainingConfig):
                   f"Margin={eval_random['avg_margin']:.1f}  "
                   f"Len={eval_random['avg_length']:.0f}")
 
+            eval_rb = evaluate_vs_rulebot(agent, config, config.eval_games,
+                                          device, threshold)
+            print(f"    vs RuleBot: WR={eval_rb['win_rate']:.1%}  "
+                  f"Margin={eval_rb['avg_margin']:.1f}")
+
             if opponent_pool.pool:
                 latest_opp = opponent_pool.pool[-1]["weights"]
                 eval_pool = evaluate_parallel(
@@ -1306,6 +1403,8 @@ def train_parallel(config: TrainingConfig):
             if writer:
                 for k, v in eval_random.items():
                     writer.add_scalar(f"eval_random/{k}", v, completed_episodes)
+                for k, v in eval_rb.items():
+                    writer.add_scalar(f"eval_rulebot/{k}", v, completed_episodes)
                 for k, v in eval_pool.items():
                     writer.add_scalar(f"eval_pool/{k}", v, completed_episodes)
 
@@ -1523,18 +1622,18 @@ def train_vectorized(config: TrainingConfig):
 
             # Single D2H transfer: concatenate on-device, transfer once, split on CPU
             bundle = torch.cat([
-                prev_obs[team_active],                              # (K, 119)
+                prev_obs[team_active],                              # (K, 129)
                 actions[team_active].unsqueeze(1).float(),          # (K, 1)
                 team_rewards[team_active].unsqueeze(1),             # (K, 1)
-                next_obs[team_active],                              # (K, 119)
+                next_obs[team_active],                              # (K, 129)
                 dones[team_active].unsqueeze(1).float(),            # (K, 1)
-            ], dim=1).cpu().numpy().copy()                          # (K, 241)
+            ], dim=1).cpu().numpy().copy()                          # (K, 261)
 
-            s = bundle[:, :119]
-            a = bundle[:, 119].astype(np.int64)
-            r = bundle[:, 120]
-            ns = bundle[:, 121:240]
-            d = bundle[:, 240].astype(bool)
+            s = bundle[:, :129]
+            a = bundle[:, 129].astype(np.int64)
+            r = bundle[:, 130]
+            ns = bundle[:, 131:260]
+            d = bundle[:, 260].astype(bool)
 
             acting_agent.buffer.add_batch(s, a, r, ns, d)
             pending_rewards[team_active, team_id] = 0.0

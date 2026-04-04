@@ -829,9 +829,9 @@
 
   .game-position-top {
     position: absolute;
-    top: 0;
+    top: -20px;
     left: 50%;
-    transform: translate(-50%, -40%);
+    transform: translateX(-50%);
   }
 
   .game-position-right {
@@ -843,6 +843,8 @@
 
   .game-center {
     position: relative;
+    top: auto;
+    left: auto;
     transform: none;
     margin: 4px auto;
     z-index: 2;
@@ -850,6 +852,8 @@
 
   .game-position-bottom {
     position: relative;
+    left: auto;
+    bottom: auto;
     transform: none;
     margin-top: auto;
     padding-bottom: env(safe-area-inset-bottom, 0px);

@@ -204,7 +204,6 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         roundScores: [0, 0],
         lastTrickResult: null,
         trickHistory: [],
-        roundEndData: null,
         noValidPlayedSeats: [],
       };
     case "GAME_OVER":

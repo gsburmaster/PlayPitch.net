@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useAppState } from "../contexts/AppContext";
 import { useGameState } from "../contexts/GameContext";
 import { useWebSocket } from "../hooks/useWebSocket";
@@ -18,11 +18,18 @@ import { bidDisplay } from "../types";
 import "../styles/table.css";
 
 export default function GameTable() {
-  const { seatIndex: localSeat } = useAppState();
+  const { seatIndex: localSeat, roomCode } = useAppState();
   const game = useGameState();
   const { sendAction, playAgain, leaveRoom, reconnect } = useWebSocket();
   const [showRules, setShowRules] = useState(false);
   const [roundDismissed, setRoundDismissed] = useState(false);
+  const [codeCopied, setCodeCopied] = useState(false);
+
+  const copyRoomCode = useCallback(async () => {
+    await navigator.clipboard.writeText(roomCode);
+    setCodeCopied(true);
+    setTimeout(() => setCodeCopied(false), 2000);
+  }, [roomCode]);
 
   useEffect(() => { setRoundDismissed(false); }, [game.roundEndData]);
 
@@ -63,6 +70,14 @@ export default function GameTable() {
           localSeat={localSeat}
         />
         <div className="d-flex align-items-center gap-2">
+          <span
+            className="room-code-topbar"
+            onClick={copyRoomCode}
+            title="Click to copy room code"
+            role="button"
+          >
+            {codeCopied ? "Copied!" : roomCode}
+          </span>
           <TrumpIndicator trumpSuit={game.trumpSuit} />
           <PhaseIndicator phase={game.phase} />
           <TrickHistoryDrawer
@@ -73,52 +88,55 @@ export default function GameTable() {
         </div>
       </div>
 
-      {/* Top player (partner) */}
-      <div className="game-position-top">
-        <PlayerArea
-          seatIndex={seatOrder[2]}
-          displayName={getSeatInfo(seatOrder[2])?.displayName ?? ""}
-          isLocal={false}
-          isDealer={game.dealer === seatOrder[2]}
-          isConnected={getSeatInfo(seatOrder[2])?.isConnected ?? false}
-          isCurrentPlayer={game.currentPlayer === seatOrder[2]}
-          cards={[]}
-          cardCount={game.noValidPlayedSeats.includes(seatOrder[2]) ? 0 : game.playerCardCounts[seatOrder[2]]}
-          bidEntry={game.bidHistory.find((b) => b.seatIndex === seatOrder[2])}
-          position="top"
-        />
-      </div>
+      {/* Opponent areas: wrapped in a row for mobile layout */}
+      <div className="game-opponents-row">
+        {/* Left player (opponent) */}
+        <div className="game-position-left">
+          <PlayerArea
+            seatIndex={seatOrder[1]}
+            displayName={getSeatInfo(seatOrder[1])?.displayName ?? ""}
+            isLocal={false}
+            isDealer={game.dealer === seatOrder[1]}
+            isConnected={getSeatInfo(seatOrder[1])?.isConnected ?? false}
+            isCurrentPlayer={game.currentPlayer === seatOrder[1]}
+            cards={[]}
+            cardCount={game.noValidPlayedSeats.includes(seatOrder[1]) ? 0 : game.playerCardCounts[seatOrder[1]]}
+            bidEntry={game.bidHistory.find((b) => b.seatIndex === seatOrder[1])}
+            position="left"
+          />
+        </div>
 
-      {/* Left player (opponent) */}
-      <div className="game-position-left">
-        <PlayerArea
-          seatIndex={seatOrder[1]}
-          displayName={getSeatInfo(seatOrder[1])?.displayName ?? ""}
-          isLocal={false}
-          isDealer={game.dealer === seatOrder[1]}
-          isConnected={getSeatInfo(seatOrder[1])?.isConnected ?? false}
-          isCurrentPlayer={game.currentPlayer === seatOrder[1]}
-          cards={[]}
-          cardCount={game.noValidPlayedSeats.includes(seatOrder[1]) ? 0 : game.playerCardCounts[seatOrder[1]]}
-          bidEntry={game.bidHistory.find((b) => b.seatIndex === seatOrder[1])}
-          position="left"
-        />
-      </div>
+        {/* Top player (partner) */}
+        <div className="game-position-top">
+          <PlayerArea
+            seatIndex={seatOrder[2]}
+            displayName={getSeatInfo(seatOrder[2])?.displayName ?? ""}
+            isLocal={false}
+            isDealer={game.dealer === seatOrder[2]}
+            isConnected={getSeatInfo(seatOrder[2])?.isConnected ?? false}
+            isCurrentPlayer={game.currentPlayer === seatOrder[2]}
+            cards={[]}
+            cardCount={game.noValidPlayedSeats.includes(seatOrder[2]) ? 0 : game.playerCardCounts[seatOrder[2]]}
+            bidEntry={game.bidHistory.find((b) => b.seatIndex === seatOrder[2])}
+            position="top"
+          />
+        </div>
 
-      {/* Right player (opponent) */}
-      <div className="game-position-right">
-        <PlayerArea
-          seatIndex={seatOrder[3]}
-          displayName={getSeatInfo(seatOrder[3])?.displayName ?? ""}
-          isLocal={false}
-          isDealer={game.dealer === seatOrder[3]}
-          isConnected={getSeatInfo(seatOrder[3])?.isConnected ?? false}
-          isCurrentPlayer={game.currentPlayer === seatOrder[3]}
-          cards={[]}
-          cardCount={game.noValidPlayedSeats.includes(seatOrder[3]) ? 0 : game.playerCardCounts[seatOrder[3]]}
-          bidEntry={game.bidHistory.find((b) => b.seatIndex === seatOrder[3])}
-          position="right"
-        />
+        {/* Right player (opponent) */}
+        <div className="game-position-right">
+          <PlayerArea
+            seatIndex={seatOrder[3]}
+            displayName={getSeatInfo(seatOrder[3])?.displayName ?? ""}
+            isLocal={false}
+            isDealer={game.dealer === seatOrder[3]}
+            isConnected={getSeatInfo(seatOrder[3])?.isConnected ?? false}
+            isCurrentPlayer={game.currentPlayer === seatOrder[3]}
+            cards={[]}
+            cardCount={game.noValidPlayedSeats.includes(seatOrder[3]) ? 0 : game.playerCardCounts[seatOrder[3]]}
+            bidEntry={game.bidHistory.find((b) => b.seatIndex === seatOrder[3])}
+            position="right"
+          />
+        </div>
       </div>
 
       {/* Center: trick area + announcements */}

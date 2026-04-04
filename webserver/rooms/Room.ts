@@ -1,14 +1,13 @@
 import type { WebSocket } from "ws";
 import { PitchEngine } from "../game/PitchEngine.js";
 import { cardToData } from "../game/constants.js";
-import { pickAIAction, getAIModelStatus } from "../ai/AIPlayer.js";
+import { pickAIAction, getAIModelStatus, resetAIHiddenStates } from "../ai/AIPlayer.js";
 import type {
   SeatIndex,
   SeatInfo,
   PlayerConnection,
   CardData,
   ServerMessage,
-  TrickCard,
 } from "../types.js";
 
 export type RoomState = "lobby" | "playing" | "gameOver" | "closed";
@@ -118,6 +117,14 @@ export class Room {
       clearTimeout(player.disconnectTimer);
       player.disconnectTimer = null;
     }
+    // If AI took over during disconnect, restore the human player
+    if (player.isAI && !playerId.startsWith("ai-")) {
+      player.isAI = false;
+      if (player.displayName.startsWith("AI (") && player.displayName.endsWith(")")) {
+        player.displayName = player.displayName.slice(4, -1);
+      }
+      this.broadcast({ type: "player:status", seatIndex: player.seatIndex, isConnected: true, displayName: player.displayName });
+    }
     this.resetExpirationTimer();
   }
 
@@ -195,6 +202,7 @@ export class Room {
 
     this.state = "playing";
     this.engine.reset();
+    resetAIHiddenStates(this.code);
 
     // Send game:start to each player with their own hand
     for (const p of this.players) {
@@ -389,7 +397,7 @@ export class Room {
       if (this.state !== "playing" || this.engine.gameOver) return;
       if (this.engine.currentPlayer !== currentSeat) return;
 
-      const action = await pickAIAction(this.engine);
+      const action = await pickAIAction(this.engine, this.code);
       this.executeAction(action);
     }, delay);
   }
@@ -513,6 +521,7 @@ export class Room {
       this._aiTimeout = null;
       this._aiTurnPending = false;
     }
+    resetAIHiddenStates(this.code);
     for (const p of this.players) {
       if (p.disconnectTimer) clearTimeout(p.disconnectTimer);
       if (p.ws) p.ws.close();

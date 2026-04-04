@@ -4,6 +4,7 @@ import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 vi.mock("../ai/AIPlayer.js", () => ({
   pickAIAction: vi.fn().mockResolvedValue(10), // default: pass
   getAIModelStatus: vi.fn().mockReturnValue(true),
+  resetAIHiddenStates: vi.fn(),
 }));
 
 import { Room } from "../rooms/Room.js";
@@ -297,6 +298,42 @@ describe("Room", () => {
 
       room.destroy();
       // After destroy, timers are cleared by the loop
+    });
+  });
+
+  // --- Reconnection ---
+
+  describe("reconnection", () => {
+    it("restores human player after AI takeover on reconnect", () => {
+      room.addPlayer("p1", "Alice", false);
+      room.addAIPlayersAtSeats([1, 2, 3] as SeatIndex[]);
+      const ws1 = mockWs();
+      room.attachSocket("p1", ws1);
+      room.startGame();
+
+      // Disconnect the human player
+      room.handleDisconnect("p1");
+      const player = room.getPlayer("p1")!;
+      expect(player.isConnected).toBe(false);
+
+      // Advance past the 60s grace period — AI takes over
+      vi.advanceTimersByTime(60000);
+      expect(player.isAI).toBe(true);
+      expect(player.displayName).toBe("AI (Alice)");
+
+      // Reconnect with a new socket
+      const ws2 = mockWs();
+      room.attachSocket("p1", ws2);
+
+      // Player should be restored
+      expect(player.isAI).toBe(false);
+      expect(player.displayName).toBe("Alice");
+      expect(player.isConnected).toBe(true);
+
+      // A player:status broadcast should have been sent
+      const calls = (ws2.send as ReturnType<typeof vi.fn>).mock.calls;
+      const messages = calls.map((c) => JSON.parse(c[0] as string));
+      expect(messages.some((m: any) => m.type === "player:status" && m.displayName === "Alice" && m.isConnected === true)).toBe(true);
     });
   });
 

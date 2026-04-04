@@ -510,6 +510,25 @@
   font-weight: bold;
 }
 
+.room-code-topbar {
+  font-size: 0.7rem;
+  letter-spacing: 0.15em;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  white-space: nowrap;
+  user-select: none;
+  transition: color 150ms ease, border-color 150ms ease;
+}
+
+.room-code-topbar:hover {
+  color: var(--text-primary);
+  border-color: rgba(255, 255, 255, 0.35);
+}
+
 /* Lobby muted text (higher contrast than Bootstrap text-muted on dark bg) */
 .lobby-muted {
   color: var(--text-secondary);
@@ -768,11 +787,7 @@
 /* Phone responsive */
 @media (max-width: 767px) {
   .game-position-left,
-  .game-position-right {
-    position: static;
-    transform: none;
-  }
-
+  .game-position-right,
   .game-position-top {
     position: static;
     transform: none;
@@ -793,6 +808,23 @@
     margin-bottom: 4px;
     flex-wrap: wrap;
     gap: 4px;
+  }
+
+  /* Opponents row: left | top | right across the screen */
+  .game-opponents-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 4px;
+  }
+
+  .game-opponents-row > .game-position-left,
+  .game-opponents-row > .game-position-right {
+    flex: 0 0 auto;
+  }
+
+  .game-opponents-row > .game-position-top {
+    flex: 1 1 auto;
   }
 
   .game-center {

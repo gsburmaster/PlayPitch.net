@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect } from "react";
+import { useRef, useState, useEffect, useMemo } from "react";
 import type { CardData } from "../../types";
 import Card from "./Card";
 
@@ -9,6 +9,26 @@ interface HandDisplayProps {
   isMyTurn?: boolean;
   phase?: number;
   onPlayCard?: (index: number) => void;
+}
+
+const SUIT_ORDER: Record<number, number> = { 0: 0, 1: 1, 2: 2, 3: 3 };
+
+function sortedHandIndices(cards: CardData[]): number[] {
+  return cards
+    .map((_, i) => i)
+    .sort((a, b) => {
+      const ca = cards[a];
+      const cb = cards[b];
+      // Jokers (suit === null) go last
+      if (ca.suit === null && cb.suit !== null) return 1;
+      if (ca.suit !== null && cb.suit === null) return -1;
+      if (ca.suit === null && cb.suit === null) return 0;
+      // Group by suit
+      const suitDiff = SUIT_ORDER[ca.suit!] - SUIT_ORDER[cb.suit!];
+      if (suitDiff !== 0) return suitDiff;
+      // Within suit, rank descending (ace high)
+      return cb.rank - ca.rank;
+    });
 }
 
 function useCardDimensions() {
@@ -35,6 +55,7 @@ export default function HandDisplay({ cards, faceUp, actionMask, isMyTurn, phase
   const { width: cardWidth, overlap, height: cardHeight } = useCardDimensions();
 
   if (!faceUp) {
+    if (cards.length === 0) return null;
     return (
       <div className="hand-display face-down">
         <div className="d-flex align-items-center gap-1">
@@ -47,32 +68,34 @@ export default function HandDisplay({ cards, faceUp, actionMask, isMyTurn, phase
     );
   }
 
+  const displayOrder = useMemo(() => sortedHandIndices(cards), [cards]);
   const totalCards = cards.length;
   const totalWidth = totalCards > 0 ? cardWidth + (totalCards - 1) * overlap : 0;
 
   return (
     <div className="hand-display face-up" style={{ width: totalWidth, height: cardHeight + 8, position: "relative", margin: "0 auto" }}>
-      {cards.map((card, idx) => {
-        const isPlayable = isMyTurn && phase === 2 && actionMask?.[idx] === 1;
-        const isDimmed = isMyTurn && phase === 2 && actionMask?.[idx] === 0;
+      {displayOrder.map((origIdx, displayIdx) => {
+        const card = cards[origIdx];
+        const isPlayable = isMyTurn && phase === 2 && actionMask?.[origIdx] === 1;
+        const isDimmed = isMyTurn && phase === 2 && actionMask?.[origIdx] === 0;
 
         const midpoint = (totalCards - 1) / 2;
-        const rotation = (idx - midpoint) * 3;
+        const rotation = (displayIdx - midpoint) * 3;
 
         return (
           <Card
-            key={`${card.suit}-${card.rank}-${idx}`}
+            key={`${card.suit}-${card.rank}-${origIdx}`}
             card={card}
             faceUp
             playable={isPlayable}
             dimmed={isDimmed}
-            onClick={() => isPlayable && onPlayCard?.(idx)}
+            onClick={() => isPlayable && onPlayCard?.(origIdx)}
             style={{
               position: "absolute",
-              left: idx * overlap,
+              left: displayIdx * overlap,
               transform: `rotate(${rotation}deg)`,
               transformOrigin: "bottom center",
-              zIndex: idx,
+              zIndex: displayIdx,
             }}
           />
         );

@@ -16,9 +16,9 @@
 /* Phone */
 @media (max-width: 767px) {
   :root {
-    --card-width: 52px;
-    --card-height: 73px;
-    --card-overlap: 18px;
+    --card-width: 68px;
+    --card-height: 95px;
+    --card-overlap: 24px;
   }
 }
 

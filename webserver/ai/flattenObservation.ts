@@ -1,5 +1,5 @@
 import { PitchEngine } from "../game/PitchEngine.js";
-import { Phase } from "../game/constants.js";
+import { Phase, cardPoints } from "../game/constants.js";
 import type { Card } from "../game/constants.js";
 
 /**
@@ -105,13 +105,6 @@ export function flattenObservation(engine: PitchEngine, seatIndex: number): Floa
     : [];
   const trumpCount = trumpCards.length;
 
-  function cardPoints(card: Card): number {
-    if (card.rank === 3) return 3;
-    if (card.rank === 15 || card.rank === 12 || card.rank === 10 ||
-        card.rank === 11 || card.rank === 2) return 1;
-    return 0;
-  }
-
   // feat 0: trump_card_count
   out[offset++] = isPlaying ? trumpCount / 10.0 : 0.0;
 
@@ -130,24 +123,28 @@ export function flattenObservation(engine: PitchEngine, seatIndex: number): Floa
     out[offset++] = 0.0;
   }
 
+  // Find current trick winner (shared by feats 4 and 5)
+  let trickWinnerEntry = isPlaying && engine.currentTrick.length > 0
+    ? engine.currentTrick[0]
+    : null;
+  if (trickWinnerEntry) {
+    for (let i = 1; i < engine.currentTrick.length; i++) {
+      const challenger = engine.currentTrick[i];
+      const challValid = engine.isValidPlay(challenger.card);
+      const curValid = engine.isValidPlay(trickWinnerEntry.card);
+      if ((challValid && !curValid) ||
+          (challValid && curValid && challenger.card.rank > trickWinnerEntry.card.rank)) {
+        trickWinnerEntry = challenger;
+      }
+    }
+  }
+
   // feat 4: can_win_trick
   if (isPlaying) {
-    if (engine.currentTrick.length === 0) {
+    if (!trickWinnerEntry) {
       out[offset++] = 1.0; // leading
     } else {
-      // Find current trick winner rank
-      let winnerEntry = engine.currentTrick[0];
-      for (let i = 1; i < engine.currentTrick.length; i++) {
-        const challenger = engine.currentTrick[i];
-        const challValid = engine.isValidPlay(challenger.card);
-        const curValid = engine.isValidPlay(winnerEntry.card);
-        if ((challValid && !curValid) ||
-            (challValid && curValid && challenger.card.rank > winnerEntry.card.rank)) {
-          winnerEntry = challenger;
-        }
-      }
-      const winnerRank = winnerEntry.card.rank;
-      const canBeat = trumpCards.some((c) => c.rank > winnerRank);
+      const canBeat = trumpCards.some((c) => c.rank > trickWinnerEntry.card.rank);
       out[offset++] = canBeat ? 1.0 : 0.0;
     }
   } else {
@@ -155,18 +152,8 @@ export function flattenObservation(engine: PitchEngine, seatIndex: number): Floa
   }
 
   // feat 5: partner_winning
-  if (isPlaying && engine.currentTrick.length > 0) {
-    let winnerEntry = engine.currentTrick[0];
-    for (let i = 1; i < engine.currentTrick.length; i++) {
-      const challenger = engine.currentTrick[i];
-      const challValid = engine.isValidPlay(challenger.card);
-      const curValid = engine.isValidPlay(winnerEntry.card);
-      if ((challValid && !curValid) ||
-          (challValid && curValid && challenger.card.rank > winnerEntry.card.rank)) {
-        winnerEntry = challenger;
-      }
-    }
-    out[offset++] = (winnerEntry.seatIndex % 2 === myTeam) ? 1.0 : 0.0;
+  if (trickWinnerEntry) {
+    out[offset++] = (trickWinnerEntry.seatIndex % 2 === myTeam) ? 1.0 : 0.0;
   } else {
     out[offset++] = 0.0;
   }

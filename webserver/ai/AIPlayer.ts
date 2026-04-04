@@ -6,6 +6,30 @@ import fs from "fs";
 
 let session: ort.InferenceSession | null = null;
 let loadAttempted = false;
+let modelHasLSTM = false; // true if model has h_in/c_in inputs (PPO+LSTM)
+
+// Per-room, per-seat LSTM hidden state: "roomCode:seat" → {h, c}
+const aiHiddenStates = new Map<string, { h: Float32Array; c: Float32Array }>();
+const HIDDEN_SIZE = 128;
+
+function getHidden(roomCode: string, seat: number): { h: Float32Array; c: Float32Array } {
+  const key = `${roomCode}:${seat}`;
+  if (!aiHiddenStates.has(key)) {
+    aiHiddenStates.set(key, {
+      h: new Float32Array(HIDDEN_SIZE),
+      c: new Float32Array(HIDDEN_SIZE),
+    });
+  }
+  return aiHiddenStates.get(key)!;
+}
+
+export function resetAIHiddenStates(roomCode: string): void {
+  for (const key of aiHiddenStates.keys()) {
+    if (key.startsWith(`${roomCode}:`)) {
+      aiHiddenStates.delete(key);
+    }
+  }
+}
 
 // Resolve model path relative to project root (ML-Pitch-Theory/)
 // Compiled location is dist/ai/AIPlayer.js, so go up 3 levels to reach project root
@@ -28,7 +52,11 @@ async function loadModel(): Promise<ort.InferenceSession | null> {
 
   try {
     session = await ort.InferenceSession.create(MODEL_PATH);
-    console.log(`Loaded ONNX model from ${MODEL_PATH}`);
+    // Detect PPO+LSTM model by checking for h_in input
+    modelHasLSTM = session.inputNames.includes("h_in");
+    console.log(
+      `Loaded ONNX model from ${MODEL_PATH} (${modelHasLSTM ? "PPO+LSTM" : "DQN"})`,
+    );
     return session;
   } catch (err) {
     console.error("Failed to load ONNX model, falling back to random:", err);
@@ -54,7 +82,7 @@ export function getAIModelStatus(): boolean {
  * Pick an action for the AI player.
  * Uses the ONNX model if available, otherwise random valid action.
  */
-export async function pickAIAction(engine: PitchEngine): Promise<number> {
+export async function pickAIAction(engine: PitchEngine, roomCode: string = ""): Promise<number> {
   const mask = engine.getActionMask();
   const validActions = mask.map((v, i) => (v === 1 ? i : -1)).filter((i) => i >= 0);
 
@@ -70,16 +98,43 @@ export async function pickAIAction(engine: PitchEngine): Promise<number> {
   try {
     const seatIndex = engine.currentPlayer;
     const obs = flattenObservation(engine, seatIndex);
-    const inputTensor = new ort.Tensor("float32", obs, [1, obs.length]);
-    const results = await sess.run({ state: inputTensor });
-    const qValues = results["q_values"].data as Float32Array;
+
+    let scores: Float32Array;
+
+    if (modelHasLSTM) {
+      // PPO+LSTM model: pass hidden state, get logits back
+      const hidden = getHidden(roomCode, seatIndex);
+      const stateTensor = new ort.Tensor("float32", obs, [1, 1, obs.length]);
+      const hTensor = new ort.Tensor("float32", hidden.h, [1, 1, HIDDEN_SIZE]);
+      const cTensor = new ort.Tensor("float32", hidden.c, [1, 1, HIDDEN_SIZE]);
+
+      const results = await sess.run({
+        state: stateTensor,
+        h_in: hTensor,
+        c_in: cTensor,
+      });
+
+      // Update stored hidden state
+      const key = `${roomCode}:${seatIndex}`;
+      aiHiddenStates.set(key, {
+        h: results["h_out"].data as Float32Array,
+        c: results["c_out"].data as Float32Array,
+      });
+
+      scores = results["logits"].data as Float32Array;
+    } else {
+      // DQN model: stateless inference
+      const inputTensor = new ort.Tensor("float32", obs, [1, obs.length]);
+      const results = await sess.run({ state: inputTensor });
+      scores = results["q_values"].data as Float32Array;
+    }
 
     // Mask invalid actions to -Infinity, pick argmax
     let bestAction = validActions[0];
-    let bestQ = -Infinity;
+    let bestScore = -Infinity;
     for (const action of validActions) {
-      if (qValues[action] > bestQ) {
-        bestQ = qValues[action];
+      if (scores[action] > bestScore) {
+        bestScore = scores[action];
         bestAction = action;
       }
     }

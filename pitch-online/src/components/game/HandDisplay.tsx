@@ -26,8 +26,8 @@ function sortedHandIndices(cards: CardData[]): number[] {
       // Group by suit
       const suitDiff = SUIT_ORDER[ca.suit!] - SUIT_ORDER[cb.suit!];
       if (suitDiff !== 0) return suitDiff;
-      // Within suit, rank descending (ace high)
-      return cb.rank - ca.rank;
+      // Within suit, rank ascending (low to high)
+      return ca.rank - cb.rank;
     });
 }
 

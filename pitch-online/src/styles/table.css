@@ -786,16 +786,10 @@
 
 /* Phone responsive */
 @media (max-width: 767px) {
-  .game-position-left,
-  .game-position-right,
-  .game-position-top {
-    position: static;
-    transform: none;
-  }
-
   .game-table {
     display: flex;
     flex-direction: column;
+    position: relative;
     height: auto;
     min-height: 100vh;
     min-height: 100dvh;
@@ -808,36 +802,58 @@
     margin-bottom: 4px;
     flex-wrap: wrap;
     gap: 4px;
+    z-index: 3;
   }
 
-  /* Opponents row: left | top | right across the screen */
+  /* Opponents row: absolute overlay so opponents sit at screen edges */
   .game-opponents-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    gap: 4px;
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    pointer-events: none;
+    z-index: 1;
   }
 
-  .game-opponents-row > .game-position-left,
-  .game-opponents-row > .game-position-right {
-    flex: 0 0 auto;
+  .game-opponents-row > * {
+    pointer-events: auto;
   }
 
-  .game-opponents-row > .game-position-top {
-    flex: 1 1 auto;
+  .game-position-left {
+    position: absolute;
+    left: -15px;
+    top: 45%;
+    transform: translateY(-50%);
+  }
+
+  .game-position-top {
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translate(-50%, -40%);
+  }
+
+  .game-position-right {
+    position: absolute;
+    right: -15px;
+    top: 45%;
+    transform: translateY(-50%);
   }
 
   .game-center {
-    position: static;
+    position: relative;
     transform: none;
     margin: 4px auto;
+    z-index: 2;
   }
 
   .game-position-bottom {
-    position: static;
+    position: relative;
     transform: none;
     margin-top: auto;
     padding-bottom: env(safe-area-inset-bottom, 0px);
+    z-index: 2;
   }
 
   .overlay-content {

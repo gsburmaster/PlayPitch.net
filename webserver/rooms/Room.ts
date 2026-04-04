@@ -23,6 +23,7 @@ export class Room {
   expirationTimer: ReturnType<typeof setTimeout> | null = null;
   private _aiTurnPending = false;
   private _aiTimeout: ReturnType<typeof setTimeout> | null = null;
+  private _roundEndTimeout: ReturnType<typeof setTimeout> | null = null;
   onDestroy: () => void;
 
   constructor(code: string, onDestroy: () => void) {
@@ -325,20 +326,26 @@ export class Room {
             totalScores: re.totalScores,
             newDealer: re.newDealer,
           });
-          // If game didn't end, send new round hands
+          // Delay new round so clients can display the round summary overlay
           if (!this.engine.gameOver) {
-            for (const p of this.players) {
-              if (!p.isAI) {
-                this.send(p.playerId, {
-                  type: "game:newRound",
-                  hand: this.engine.getHandData(p.seatIndex),
-                  dealer: this.engine.dealer,
-                  currentPlayer: this.engine.currentPlayer,
-                  roundNumber: this.engine.numberOfRoundsPlayed,
-                  scores: [...this.engine.scores] as [number, number],
-                });
+            this._roundEndTimeout = setTimeout(() => {
+              this._roundEndTimeout = null;
+              if (this.state !== "playing" || this.engine.gameOver) return;
+              for (const p of this.players) {
+                if (!p.isAI) {
+                  this.send(p.playerId, {
+                    type: "game:newRound",
+                    hand: this.engine.getHandData(p.seatIndex),
+                    dealer: this.engine.dealer,
+                    currentPlayer: this.engine.currentPlayer,
+                    roundNumber: this.engine.numberOfRoundsPlayed,
+                    scores: [...this.engine.scores] as [number, number],
+                  });
+                }
               }
-            }
+              this.broadcastTurn();
+              this.processAITurns();
+            }, 3500);
           }
           break;
         }
@@ -355,8 +362,8 @@ export class Room {
       }
     }
 
-    // Send turn update if game is still going
-    if (this.state === "playing" && !this.engine.gameOver) {
+    // Send turn update if game is still going (skip if waiting for round-end delay)
+    if (this.state === "playing" && !this.engine.gameOver && this._roundEndTimeout === null) {
       this.broadcastTurn();
       // Process AI turns
       this.processAITurns();
@@ -520,6 +527,10 @@ export class Room {
       clearTimeout(this._aiTimeout);
       this._aiTimeout = null;
       this._aiTurnPending = false;
+    }
+    if (this._roundEndTimeout) {
+      clearTimeout(this._roundEndTimeout);
+      this._roundEndTimeout = null;
     }
     resetAIHiddenStates(this.code);
     for (const p of this.players) {

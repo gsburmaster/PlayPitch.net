@@ -53,6 +53,7 @@ function useCardDimensions() {
 
 export default function HandDisplay({ cards, faceUp, actionMask, isMyTurn, phase, onPlayCard }: HandDisplayProps) {
   const { width: cardWidth, overlap, height: cardHeight } = useCardDimensions();
+  const displayOrder = useMemo(() => sortedHandIndices(cards), [cards]);
 
   if (!faceUp) {
     if (cards.length === 0) return null;
@@ -68,7 +69,6 @@ export default function HandDisplay({ cards, faceUp, actionMask, isMyTurn, phase
     );
   }
 
-  const displayOrder = useMemo(() => sortedHandIndices(cards), [cards]);
   const totalCards = cards.length;
   const totalWidth = totalCards > 0 ? cardWidth + (totalCards - 1) * overlap : 0;
 

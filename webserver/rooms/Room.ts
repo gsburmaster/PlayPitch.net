@@ -1,6 +1,7 @@
 import type { WebSocket } from "ws";
 import { PitchEngine } from "../game/PitchEngine.js";
 import { cardToData } from "../game/constants.js";
+import { GameLogger } from "../game/GameLogger.js";
 import { pickAIAction, getAIModelStatus, resetAIHiddenStates } from "../ai/AIPlayer.js";
 import type {
   SeatIndex,
@@ -24,6 +25,7 @@ export class Room {
   private _aiTurnPending = false;
   private _aiTimeout: ReturnType<typeof setTimeout> | null = null;
   private _roundEndTimeout: ReturnType<typeof setTimeout> | null = null;
+  private gameLogger: GameLogger | null = null;
   onDestroy: () => void;
 
   constructor(code: string, onDestroy: () => void) {
@@ -202,7 +204,11 @@ export class Room {
     if (this.state !== "lobby" || !this.isAllFilled()) return;
 
     this.state = "playing";
+    this.gameLogger = new GameLogger();
+    const logger = this.gameLogger;
+    this.engine.onDeckShuffled = (deck) => logger.setDeck(deck);
     this.engine.reset();
+    this.gameLogger.startRound(this.getAISeatIndices());
     resetAIHiddenStates(this.code);
 
     // Send game:start to each player with their own hand
@@ -247,6 +253,7 @@ export class Room {
     const actingSeat = this.engine.currentPlayer;
     const actingPlayer = this.getPlayerBySeat(actingSeat);
     const events = this.engine.step(action);
+    this.gameLogger?.recordAction(action);
 
     for (const event of events) {
       switch (event.type) {
@@ -315,6 +322,8 @@ export class Room {
           break;
         }
         case "roundEnd": {
+          this.gameLogger?.endRound();
+          this.gameLogger?.startRound(this.getAISeatIndices());
           const re = event.data as unknown as { bidderTeam: number; bidAmount: number; bidMade: boolean; roundScores: [number, number]; scoreDeltas: [number, number]; totalScores: [number, number]; newDealer: number };
           this.broadcast({
             type: "game:roundEnd",
@@ -350,6 +359,7 @@ export class Room {
           break;
         }
         case "gameOver": {
+          this.gameLogger?.flush(true, event.data.winner as number, [...this.engine.scores]);
           this.state = "gameOver";
           this.broadcast({
             type: "game:over",
@@ -506,6 +516,10 @@ export class Room {
     }
   }
 
+  private getAISeatIndices(): number[] {
+    return this.players.filter((p) => p.isAI).map((p) => p.seatIndex);
+  }
+
   // --- Cleanup ---
 
   private resetExpirationTimer(): void {
@@ -520,6 +534,9 @@ export class Room {
   }
 
   destroy(): void {
+    if (this.state === "playing") {
+      this.gameLogger?.flush(false, null, null);
+    }
     this.state = "closed";
     if (this.expirationTimer) clearTimeout(this.expirationTimer);
     if (this.playAgainTimer) clearTimeout(this.playAgainTimer);

@@ -46,6 +46,7 @@ export interface TrickResult {
 export class PitchEngine {
   winThreshold: number;
   deck: Card[] = [];
+  onDeckShuffled: ((deck: CardData[]) => void) | null = null;
   hands: Card[][] = [[], [], [], []];
   roundScores: [number, number] = [0, 0];
   scores: [number, number] = [0, 0];
@@ -71,6 +72,7 @@ export class PitchEngine {
 
   reset(dealerOverride?: number): void {
     this.deck = this.createDeck();
+    this.onDeckShuffled?.(this.deck.map(cardToData));
     this.hands = [[], [], [], []];
     this.roundScores = [0, 0];
     this.scores = [0, 0];
@@ -96,6 +98,7 @@ export class PitchEngine {
   newRound(): void {
     this.dealer = (this.dealer + 1) % 4;
     this.deck = this.createDeck();
+    this.onDeckShuffled?.(this.deck.map(cardToData));
     this.hands = [[], [], [], []];
     this.roundScores = [0, 0];
     this.currentBid = 0;

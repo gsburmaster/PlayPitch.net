@@ -27,18 +27,31 @@ export default function PrivacyPolicyModal({
 
         <Section title="No Cookies or Tracking">
           <p>
-            This site does not use cookies, localStorage, analytics, or any
-            third-party tracking scripts.
+            This site does not use cookies, analytics, or any third-party
+            tracking scripts. We use localStorage solely to save your session
+            (room code and player ID) so you can rejoin a game if your browser
+            closes. This data is cleared automatically when your game ends.
           </p>
         </Section>
 
         <Section title="Data Retention">
           <p>
-            All game data (your display name, game state, and room information)
-            exists only in server memory and is automatically deleted when your
-            game room expires &mdash; at most 30 minutes after the last
-            activity. There is no persistent storage. Your ip address /
-            connection info is kept until we manually delete the logs
+            Your display name, game state, and room information exist only in
+            server memory and are automatically deleted when your game room
+            expires &mdash; at most 30 minutes after the last activity. Your IP
+            address / connection info is kept until we manually delete the logs.
+            Anonymized game data may be stored persistently (see Game Data
+            below).
+          </p>
+        </Section>
+
+        <Section title="Game Data">
+          <p>
+            When you play, we record anonymized game data &mdash; the cards
+            dealt and moves made &mdash; for the purpose of improving our AI
+            players. This data contains no names, account identifiers, IP
+            addresses, or any information that could identify you. It is stored
+            indefinitely and cannot be linked back to any individual player.
           </p>
         </Section>
 

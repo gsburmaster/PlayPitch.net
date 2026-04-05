@@ -636,6 +636,75 @@ describe("PitchEngine", () => {
       expect(tr!.data.pointsWon).toBe(1); // jack=1pt
     });
 
+    it("jack of trump beats off-jack when off-jack played first", () => {
+      const e = new PitchEngine();
+      e.reset(0);
+      e.phase = Phase.PLAYING;
+      e.trumpSuit = Suit.HEARTS;
+      e.currentPlayer = 0;
+      e.playingIterator = 0;
+
+      // Off-jack played first, jack of trump played later
+      e.hands[0] = [{ suit: Suit.DIAMONDS, rank: 12 }]; // off-jack
+      e.hands[1] = [{ suit: Suit.HEARTS, rank: 4 }];
+      e.hands[2] = [{ suit: Suit.HEARTS, rank: 12 }];   // jack of trump
+      e.hands[3] = [{ suit: Suit.HEARTS, rank: 6 }];
+
+      e.step(0); // off-jack
+      e.step(0); // 4
+      e.step(0); // jack of trump
+      const events = e.step(0); // 6
+      const tr = events.find((ev) => ev.type === "trickResult");
+      expect(tr!.data.winner).toBe(2); // jack of trump wins
+    });
+
+    it("jack of trump beats off-jack when jack played first", () => {
+      const e = new PitchEngine();
+      e.reset(0);
+      e.phase = Phase.PLAYING;
+      e.trumpSuit = Suit.HEARTS;
+      e.currentPlayer = 0;
+      e.playingIterator = 0;
+
+      e.hands[0] = [{ suit: Suit.HEARTS, rank: 12 }];   // jack of trump
+      e.hands[1] = [{ suit: Suit.HEARTS, rank: 4 }];
+      e.hands[2] = [{ suit: Suit.DIAMONDS, rank: 12 }]; // off-jack
+      e.hands[3] = [{ suit: Suit.HEARTS, rank: 6 }];
+
+      e.step(0);
+      e.step(0);
+      e.step(0);
+      const events = e.step(0);
+      const tr = events.find((ev) => ev.type === "trickResult");
+      expect(tr!.data.winner).toBe(0); // jack of trump still wins
+    });
+
+    it("no bonus turn when trick winner has no valid plays", () => {
+      const e = new PitchEngine();
+      e.reset(0);
+      e.phase = Phase.PLAYING;
+      e.trumpSuit = Suit.HEARTS;
+      e.currentPlayer = 0;
+      e.playingIterator = 0;
+
+      // Player 2 will win but has only 1 card left
+      e.hands[0] = [{ suit: Suit.HEARTS, rank: 4 }, { suit: Suit.HEARTS, rank: 5 }];
+      e.hands[1] = [{ suit: Suit.HEARTS, rank: 6 }, { suit: Suit.HEARTS, rank: 7 }];
+      e.hands[2] = [{ suit: Suit.HEARTS, rank: 15 }]; // Ace — wins but then empty
+      e.hands[3] = [{ suit: Suit.HEARTS, rank: 8 }, { suit: Suit.HEARTS, rank: 9 }];
+
+      e.step(0); // 0 plays 4
+      e.step(0); // 1 plays 6
+      e.step(0); // 2 plays Ace
+      const events = e.step(0); // 3 plays 8 → trick resolves
+
+      // Player 2 won but has no cards → skipped, player 3 leads
+      expect(e.currentPlayer).toBe(3);
+      expect(e.playingIterator).toBe(1); // skipped player counted
+      // Should have emitted noValidPlay for the skipped player
+      expect(events.some((ev) => ev.type === "noValidPlay" && ev.data.seatIndex === 2)).toBe(true);
+    });
+
     it("2 of trump scores for the team that played it, not the trick winner", () => {
       const e = new PitchEngine();
       e.reset(0);

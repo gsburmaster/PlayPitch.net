@@ -226,7 +226,7 @@ class SumTree:
 # ---------------------------------------------------------------------------
 
 class PrioritizedReplayBuffer:
-    def __init__(self, capacity: int, obs_dim: int = 119, alpha: float = 0.6):
+    def __init__(self, capacity: int, obs_dim: int = 129, alpha: float = 0.6):
         self.tree = SumTree(capacity)
         self.capacity = capacity
         self.alpha = alpha
@@ -314,6 +314,14 @@ class PrioritizedReplayBuffer:
     @property
     def size(self) -> int:
         return self.tree.size
+
+    def clear(self):
+        """Reset buffer to empty (called on curriculum threshold change)."""
+        self.tree.tree[:] = 0.0
+        self.tree.data = [None] * self.capacity
+        self.tree.write_pos = 0
+        self.tree.size = 0
+        self.tree._max_priority = 1.0
 
 
 # ---------------------------------------------------------------------------
@@ -870,6 +878,48 @@ def evaluate_vs_rulebot(agent: Agent, config: TrainingConfig, num_games: int,
     }
 
 
+def evaluate_vs_rulebot_parallel(agent: Agent, config: TrainingConfig, num_games: int,
+                                  device: torch.device = torch.device("cpu"),
+                                  win_threshold: int = 54) -> Dict[str, float]:
+    """Batched evaluation vs deterministic rule bot — batches team-0 inference."""
+    envs = [PitchEnv(win_threshold=win_threshold) for _ in range(num_games)]
+    obs_list = [env.reset(seed=config.seed + 2_000_000 + i)[0]
+                for i, env in enumerate(envs)]
+    done_list = [False] * num_games
+    steps = [0] * num_games
+
+    while not all(done_list):
+        for team in [0, 1]:
+            indices = [i for i in range(num_games)
+                       if not done_list[i]
+                       and envs[i].current_player % 2 == team]
+            if not indices:
+                continue
+
+            if team == 0:
+                states = np.array([flatten_observation(obs_list[i]) for i in indices])
+                masks = np.array([obs_list[i]["action_mask"] for i in indices])
+                actions = agent.act_batch(states, masks, greedy=True)
+                for idx, i in enumerate(indices):
+                    obs_list[i], _, done_list[i], _, _ = envs[i].step(
+                        int(actions[idx]), obs_list[i])
+                    steps[i] += 1
+            else:
+                for i in indices:
+                    action = rule_bot.pick_action(envs[i])
+                    obs_list[i], _, done_list[i], _, _ = envs[i].step(action, obs_list[i])
+                    steps[i] += 1
+
+    wins = sum(1 for env in envs if env.scores[0] > env.scores[1])
+    margins = [env.scores[0] - env.scores[1] for env in envs]
+    n = max(num_games, 1)
+    return {
+        "win_rate": wins / n,
+        "avg_margin": sum(margins) / n,
+        "avg_length": sum(steps) / n,
+    }
+
+
 # ---------------------------------------------------------------------------
 # ONNX Export
 # ---------------------------------------------------------------------------
@@ -893,9 +943,10 @@ def export_onnx(model: DuelingDQN, path: str, device: torch.device, opset: int =
 
 def save_checkpoint(path: str, agent: Agent, agent_opp: Agent,
                     episode: int, global_step: int, best_win_rate: float,
-                    config: TrainingConfig, opponent_pool: OpponentPool):
+                    config: TrainingConfig, opponent_pool: OpponentPool,
+                    current_noise: float = None):
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    torch.save({
+    ckpt_dict = {
         "episode": episode,
         "global_step": global_step,
         "best_win_rate": best_win_rate,
@@ -914,12 +965,16 @@ def save_checkpoint(path: str, agent: Agent, agent_opp: Agent,
         "rng_python": random.getstate(),
         "rng_numpy": np.random.get_state(),
         "rng_torch": torch.random.get_rng_state(),
-    }, path)
+    }
+    if current_noise is not None:
+        ckpt_dict["current_noise"] = current_noise
+    torch.save(ckpt_dict, path)
     print(f"  Checkpoint saved: {path}")
 
 
 def load_checkpoint(path: str, agent: Agent, agent_opp: Agent,
-                    opponent_pool: OpponentPool, device: torch.device):
+                    opponent_pool: OpponentPool, device: torch.device,
+                    config: TrainingConfig = None):
     ckpt = torch.load(path, map_location=device, weights_only=False)
 
     agent.q_network.load_state_dict(ckpt["agent_q_state"])
@@ -945,8 +1000,113 @@ def load_checkpoint(path: str, agent: Agent, agent_opp: Agent,
         rng_state = rng_state.to(dtype=torch.uint8, device="cpu")
     torch.random.set_rng_state(rng_state)
 
+    # Backward-compatible: old checkpoints won't have current_noise
+    default_noise = config.rule_bot_noise if config is not None else 0.5
+    current_noise = ckpt.get("current_noise", default_noise)
+
     print(f"Resumed from {path} at episode {ckpt['episode']}")
-    return ckpt["episode"], ckpt["global_step"], ckpt["best_win_rate"]
+    return ckpt["episode"], ckpt["global_step"], ckpt["best_win_rate"], current_noise
+
+
+# ---------------------------------------------------------------------------
+# Imitation Pre-training: learn from rule-bot self-play
+# ---------------------------------------------------------------------------
+
+def pretrain_from_rulebot(agent: Agent, config: TrainingConfig,
+                          device: torch.device, num_games: int = 50_000,
+                          batch_size: int = 512, epochs: int = 3):
+    """Generate rule-bot self-play data and train the Q-network via
+    supervised cross-entropy loss on the rule-bot's chosen actions.
+    This gives the agent a strong starting policy before RL fine-tuning."""
+    print(f"\n=== Imitation pre-training: {num_games:,} games, {epochs} epochs ===")
+
+    # Collect (state, action, mask) from rule-bot games
+    states_list = []
+    actions_list = []
+    masks_list = []
+
+    for game in range(num_games):
+        env = PitchEnv(win_threshold=54)
+        obs, _ = env.reset(seed=config.seed + 5_000_000 + game)
+        done = False
+        while not done:
+            action = rule_bot.pick_action(env)
+            # Only collect team-0 actions (seats 0, 2)
+            if env.current_player % 2 == 0:
+                state = flatten_observation(obs)
+                states_list.append(state)
+                actions_list.append(action)
+                masks_list.append(obs["action_mask"].copy())
+            obs, _, done, _, _ = env.step(action, obs)
+
+        if (game + 1) % 10000 == 0:
+            print(f"  Collected {len(states_list):,} samples from {game+1:,} games")
+
+    # Keep data as numpy to avoid huge GPU allocation
+    states_np = np.array(states_list, dtype=np.float32)
+    actions_np = np.array(actions_list, dtype=np.int64)
+    masks_np = np.array(masks_list, dtype=np.float32)
+    n = len(states_np)
+    print(f"  Total samples: {n:,}")
+
+    # Train with cross-entropy loss (masked), streaming batches to device
+    optimizer = optim.Adam(agent.q_network.parameters(), lr=1e-3)
+    agent.q_network.train()
+
+    for epoch in range(epochs):
+        # Shuffle indices (numpy, no GPU allocation)
+        perm = np.random.permutation(n)
+
+        total_loss = 0.0
+        correct = 0
+        batches = 0
+
+        for i in range(0, n, batch_size):
+            idx = perm[i:i+batch_size]
+            batch_s = torch.from_numpy(states_np[idx]).to(device)
+            batch_a = torch.from_numpy(actions_np[idx]).to(device)
+            batch_m = torch.from_numpy(masks_np[idx]).to(device)
+
+            logits = agent.q_network(batch_s)
+            # Mask invalid actions to -inf before softmax
+            logits = logits + (1 - batch_m) * (-1e9)
+            loss = F.cross_entropy(logits, batch_a)
+
+            optimizer.zero_grad()
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(agent.q_network.parameters(), 1.0)
+            optimizer.step()
+
+            total_loss += loss.item()
+            correct += (logits.argmax(dim=-1) == batch_a).sum().item()
+            batches += 1
+
+        acc = correct / n
+        avg_loss = total_loss / batches
+        print(f"  Epoch {epoch+1}/{epochs}: loss={avg_loss:.4f}  accuracy={acc:.1%}")
+
+    # Reset value/advantage heads (cross-entropy logits ≠ Q-values)
+    # but keep backbone features which encode game understanding
+    for head in [agent.q_network.value_stream, agent.q_network.advantage_stream]:
+        for m in head.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.kaiming_normal_(m.weight, nonlinearity="relu")
+                nn.init.zeros_(m.bias)
+
+    # Freeze backbone so RL only trains the Q-value heads
+    for param in agent.q_network.input_ln.parameters():
+        param.requires_grad = False
+    for param in agent.q_network.backbone.parameters():
+        param.requires_grad = False
+
+    # Sync target network and reset RL optimizer (only head params)
+    agent.target_network.load_state_dict(agent.q_network.state_dict())
+    trainable = [p for p in agent.q_network.parameters() if p.requires_grad]
+    agent.optimizer = optim.Adam(trainable, lr=config.lr)
+    agent.scheduler = optim.lr_scheduler.CosineAnnealingLR(
+        agent.optimizer, T_max=config.num_episodes, eta_min=config.lr_min)
+    print(f"  Frozen backbone, training {sum(p.numel() for p in trainable):,} head params")
+    print("=== Imitation pre-training complete ===\n")
 
 
 # ---------------------------------------------------------------------------
@@ -977,16 +1137,20 @@ def train(config: TrainingConfig):
     start_episode = 0
     global_step = 0
     best_win_rate = 0.0
+    current_noise: float = config.rule_bot_noise
 
     # Resume from checkpoint
     if config.resume:
-        start_episode, global_step, best_win_rate = load_checkpoint(
-            config.resume, agent, agent_opp, opponent_pool, device)
+        start_episode, global_step, _, loaded_noise = load_checkpoint(
+            config.resume, agent, agent_opp, opponent_pool, device, config)
+        # Reset best_win_rate: previously tracked vs-random WR; now tracks vs-rulebot WR
+        if config.noise_gated:
+            current_noise = loaded_noise
 
-    # Best model tracking (sorted by win_rate desc)
+    # Best model tracking (sorted by rule-bot win_rate desc)
     best_models: List[Tuple[float, str]] = []
-    if config.resume and best_win_rate > 0:
-        best_models.append((best_win_rate, config.resume))
+    if config.resume:
+        best_models.append((0.0, config.resume))  # fallback for ONNX export
 
     start_time = time.time()
     recent_rewards = deque(maxlen=1000)
@@ -1012,9 +1176,12 @@ def train(config: TrainingConfig):
         beta = config.per_beta_start + (config.per_beta_end - config.per_beta_start) * \
             (episode / config.num_episodes)
 
-        # Graduated rule-bot noise
-        ep_noise = config.rule_bot_noise + (config.rule_bot_noise_end - config.rule_bot_noise) * \
-            (episode / config.num_episodes)
+        # Rule-bot noise: eval-gated (one-way ratchet) or linear schedule
+        if config.noise_gated:
+            ep_noise = current_noise
+        else:
+            ep_noise = config.rule_bot_noise + (config.rule_bot_noise_end - config.rule_bot_noise) * \
+                (episode / config.num_episodes)
 
         # Self-play: occasionally use opponent from pool for team 1
         use_pool_opponent = False
@@ -1133,6 +1300,7 @@ def train(config: TrainingConfig):
                 writer.add_scalar("train/buffer_size", agent.buffer.size, episode)
                 writer.add_scalar("train/eps_per_sec", eps_per_sec, episode)
                 writer.add_scalar("train/threshold", threshold, episode)
+                writer.add_scalar("train/rule_bot_noise", ep_noise, episode)
 
         # Opponent pool snapshot
         if episode % config.opponent_snapshot_freq == 0 and episode > 0:
@@ -1153,7 +1321,14 @@ def train(config: TrainingConfig):
             eval_rb = evaluate_vs_rulebot(agent, config, config.eval_games,
                                           device, threshold)
             print(f"    vs RuleBot: WR={eval_rb['win_rate']:.1%}  "
-                  f"Margin={eval_rb['avg_margin']:.1f}")
+                  f"Margin={eval_rb['avg_margin']:.1f}  "
+                  f"Noise={current_noise:.2f}")
+
+            # Eval-gated noise reduction
+            if config.noise_gated and eval_rb["win_rate"] >= config.noise_reduction_threshold:
+                current_noise = max(config.noise_floor,
+                                    current_noise - config.noise_reduction_step)
+                print(f"    ** Noise reduced to {current_noise:.2f} **")
 
             # vs Pool latest
             if opponent_pool.pool:
@@ -1172,14 +1347,15 @@ def train(config: TrainingConfig):
                 for k, v in eval_pool.items():
                     writer.add_scalar(f"eval_pool/{k}", v, episode)
 
-            # Best model tracking
-            wr = eval_random["win_rate"]
+            # Best model tracking: save based on rule-bot WR (primary objective)
+            wr = eval_rb["win_rate"]
             if wr > best_win_rate:
                 best_win_rate = wr
                 best_path = os.path.join(config.checkpoint_dir,
-                                         f"best_ep{episode}_wr{wr:.3f}.pt")
+                                         f"best_ep{episode}_rb{wr:.3f}.pt")
                 save_checkpoint(best_path, agent, agent_opp, episode,
-                                global_step, best_win_rate, config, opponent_pool)
+                                global_step, best_win_rate, config, opponent_pool,
+                                current_noise)
                 best_models.append((wr, best_path))
                 best_models.sort(key=lambda x: x[0], reverse=True)
                 # Remove excess best models
@@ -1192,13 +1368,14 @@ def train(config: TrainingConfig):
         if episode % config.checkpoint_freq == 0 and episode > 0:
             ckpt_path = os.path.join(config.checkpoint_dir, f"checkpoint_ep{episode}.pt")
             save_checkpoint(ckpt_path, agent, agent_opp, episode,
-                            global_step, best_win_rate, config, opponent_pool)
+                            global_step, best_win_rate, config, opponent_pool,
+                            current_noise)
 
     # ---------------------------------------------------------------------------
     # Training complete — export best model as ONNX
     # ---------------------------------------------------------------------------
     print("\nTraining complete!")
-    print(f"Best win rate vs random: {best_win_rate:.1%}")
+    print(f"Best win rate vs rule bot: {best_win_rate:.1%}")
 
     # Load best checkpoint if available
     if best_models:
@@ -1213,7 +1390,8 @@ def train(config: TrainingConfig):
     # Also save final checkpoint
     final_path = os.path.join(config.checkpoint_dir, "checkpoint_final.pt")
     save_checkpoint(final_path, agent, agent_opp, config.num_episodes,
-                    global_step, best_win_rate, config, opponent_pool)
+                    global_step, best_win_rate, config, opponent_pool,
+                    current_noise)
 
     if writer:
         writer.close()
@@ -1245,19 +1423,27 @@ def train_parallel(config: TrainingConfig):
     agent = Agent(config, device)
     agent_opp = Agent(config, device)
 
+    # Imitation pre-training (before RL)
+    if config.pretrain and not config.resume:
+        pretrain_from_rulebot(agent, config, device, config.pretrain_games)
+
     opponent_pool = OpponentPool(config.opponent_pool_size)
 
     start_episode = 0
     global_step = 0
     best_win_rate = 0.0
+    current_noise: float = config.rule_bot_noise
 
     if config.resume:
-        start_episode, global_step, best_win_rate = load_checkpoint(
-            config.resume, agent, agent_opp, opponent_pool, device)
+        start_episode, global_step, _, loaded_noise = load_checkpoint(
+            config.resume, agent, agent_opp, opponent_pool, device, config)
+        # Reset best_win_rate: previously tracked vs-random WR; now tracks vs-rulebot WR
+        if config.noise_gated:
+            current_noise = loaded_noise
 
     best_models: List[Tuple[float, str]] = []
-    if config.resume and best_win_rate > 0:
-        best_models.append((best_win_rate, config.resume))
+    if config.resume:
+        best_models.append((0.0, config.resume))  # fallback for ONNX export
 
     def make_env(threshold):
         return PitchEnvWrapper(PitchEnv(win_threshold=threshold),
@@ -1279,6 +1465,9 @@ def train_parallel(config: TrainingConfig):
     last_eval_episode = start_episode
     last_checkpoint_episode = start_episode
 
+    # Curriculum change tracking
+    prev_threshold = None
+
     while completed_episodes < config.num_episodes:
         # --- Schedules based on completed episodes ---
         progress = completed_episodes / config.num_episodes
@@ -1286,6 +1475,14 @@ def train_parallel(config: TrainingConfig):
         for start_frac, thresh in config.curriculum:
             if progress >= start_frac:
                 threshold = thresh
+
+        # Detect curriculum threshold change: reset best WR but keep buffer
+        # (short-game transitions about bidding/suit selection are still valid)
+        if prev_threshold is not None and threshold != prev_threshold:
+            print(f"\n  ** Curriculum step: {prev_threshold}→{threshold} "
+                  f"at ep {completed_episodes} **\n")
+            best_win_rate = 0.0
+        prev_threshold = threshold
 
         decay_progress = min(1.0, completed_episodes / config.epsilon_decay_episodes)
         epsilon = config.epsilon_end + (config.epsilon_start - config.epsilon_end) * \
@@ -1295,8 +1492,11 @@ def train_parallel(config: TrainingConfig):
 
         beta = config.per_beta_start + (config.per_beta_end - config.per_beta_start) * progress
 
-        # Graduated rule-bot noise: linearly decay from noise to noise_end
-        noise = config.rule_bot_noise + (config.rule_bot_noise_end - config.rule_bot_noise) * progress
+        # Rule-bot noise: eval-gated (one-way ratchet) or linear schedule
+        if config.noise_gated:
+            noise = current_noise
+        else:
+            noise = config.rule_bot_noise + (config.rule_bot_noise_end - config.rule_bot_noise) * progress
 
         # --- Self-play: swap opponent weights periodically ---
         # (applied once per step_all; all in-flight games share the same opponent)
@@ -1366,6 +1566,7 @@ def train_parallel(config: TrainingConfig):
                 writer.add_scalar("train/buffer_size", agent.buffer.size, completed_episodes)
                 writer.add_scalar("train/eps_per_sec", eps_per_sec, completed_episodes)
                 writer.add_scalar("train/threshold", threshold, completed_episodes)
+                writer.add_scalar("train/rule_bot_noise", noise, completed_episodes)
 
         # Opponent pool snapshot
         if completed_episodes - last_snapshot_episode >= config.opponent_snapshot_freq \
@@ -1389,7 +1590,14 @@ def train_parallel(config: TrainingConfig):
             eval_rb = evaluate_vs_rulebot(agent, config, config.eval_games,
                                           device, threshold)
             print(f"    vs RuleBot: WR={eval_rb['win_rate']:.1%}  "
-                  f"Margin={eval_rb['avg_margin']:.1f}")
+                  f"Margin={eval_rb['avg_margin']:.1f}  "
+                  f"Noise={current_noise:.2f}")
+
+            # Eval-gated noise reduction
+            if config.noise_gated and eval_rb["win_rate"] >= config.noise_reduction_threshold:
+                current_noise = max(config.noise_floor,
+                                    current_noise - config.noise_reduction_step)
+                print(f"    ** Noise reduced to {current_noise:.2f} **")
 
             if opponent_pool.pool:
                 latest_opp = opponent_pool.pool[-1]["weights"]
@@ -1408,13 +1616,15 @@ def train_parallel(config: TrainingConfig):
                 for k, v in eval_pool.items():
                     writer.add_scalar(f"eval_pool/{k}", v, completed_episodes)
 
-            wr = eval_random["win_rate"]
+            # Best model tracking: save based on rule-bot WR (primary objective)
+            wr = eval_rb["win_rate"]
             if wr > best_win_rate:
                 best_win_rate = wr
                 best_path = os.path.join(config.checkpoint_dir,
-                                         f"best_ep{completed_episodes}_wr{wr:.3f}.pt")
+                                         f"best_ep{completed_episodes}_rb{wr:.3f}.pt")
                 save_checkpoint(best_path, agent, agent_opp, completed_episodes,
-                                global_step, best_win_rate, config, opponent_pool)
+                                global_step, best_win_rate, config, opponent_pool,
+                                current_noise)
                 best_models.append((wr, best_path))
                 best_models.sort(key=lambda x: x[0], reverse=True)
                 while len(best_models) > config.best_models_to_keep:
@@ -1429,11 +1639,12 @@ def train_parallel(config: TrainingConfig):
             ckpt_path = os.path.join(config.checkpoint_dir,
                                      f"checkpoint_ep{completed_episodes}.pt")
             save_checkpoint(ckpt_path, agent, agent_opp, completed_episodes,
-                            global_step, best_win_rate, config, opponent_pool)
+                            global_step, best_win_rate, config, opponent_pool,
+                            current_noise)
 
     # --- Training complete ---
     print("\nTraining complete!")
-    print(f"Best win rate vs random: {best_win_rate:.1%}")
+    print(f"Best win rate vs rule bot: {best_win_rate:.1%}")
 
     if best_models:
         best_path = best_models[0][1]
@@ -1445,7 +1656,8 @@ def train_parallel(config: TrainingConfig):
 
     final_path = os.path.join(config.checkpoint_dir, "checkpoint_final.pt")
     save_checkpoint(final_path, agent, agent_opp, config.num_episodes,
-                    global_step, best_win_rate, config, opponent_pool)
+                    global_step, best_win_rate, config, opponent_pool,
+                    current_noise)
 
     if writer:
         writer.close()
@@ -1479,12 +1691,18 @@ def train_vectorized(config: TrainingConfig):
     start_episode = 0
     global_step = 0
     best_win_rate = 0.0
+    current_noise: float = config.rule_bot_noise
 
     if config.resume:
-        start_episode, global_step, best_win_rate = load_checkpoint(
-            config.resume, agent, agent_opp, opponent_pool, device)
+        start_episode, global_step, _, loaded_noise = load_checkpoint(
+            config.resume, agent, agent_opp, opponent_pool, device, config)
+        # Reset best_win_rate: previously tracked vs-random WR; now tracks vs-rulebot WR
+        if config.noise_gated:
+            current_noise = loaded_noise
 
     best_models: List[Tuple[float, str]] = []
+    if config.resume:
+        best_models.append((0.0, config.resume))  # fallback for ONNX export
 
     # Create vectorized env
     threshold = config.curriculum[-1][1]
@@ -1516,6 +1734,9 @@ def train_vectorized(config: TrainingConfig):
             if progress >= start_frac:
                 new_threshold = thresh
         if new_threshold != env.win_threshold:
+            print(f"\n  ** Curriculum step: {env.win_threshold}→{new_threshold} "
+                  f"at ep {completed_episodes} **\n")
+            best_win_rate = 0.0
             env.win_threshold = new_threshold
 
         decay_progress = min(1.0, completed_episodes / config.epsilon_decay_episodes)
@@ -1697,6 +1918,7 @@ def train_vectorized(config: TrainingConfig):
                 writer.add_scalar("train/buffer_size", agent.buffer.size, completed_episodes)
                 writer.add_scalar("train/eps_per_sec", eps_per_sec, completed_episodes)
                 writer.add_scalar("train/threshold", new_threshold, completed_episodes)
+                writer.add_scalar("train/rule_bot_noise", current_noise, completed_episodes)
 
         # Opponent pool snapshot
         if completed_episodes - last_snapshot_episode >= config.opponent_snapshot_freq \
@@ -1718,6 +1940,18 @@ def train_vectorized(config: TrainingConfig):
                   f"Margin={eval_random['avg_margin']:.1f}  "
                   f"Len={eval_random['avg_length']:.0f}")
 
+            eval_rb = evaluate_vs_rulebot_parallel(
+                agent, config, config.eval_games, device, new_threshold)
+            print(f"    vs RuleBot: WR={eval_rb['win_rate']:.1%}  "
+                  f"Margin={eval_rb['avg_margin']:.1f}  "
+                  f"Noise={current_noise:.2f}")
+
+            # Eval-gated noise reduction
+            if config.noise_gated and eval_rb["win_rate"] >= config.noise_reduction_threshold:
+                current_noise = max(config.noise_floor,
+                                    current_noise - config.noise_reduction_step)
+                print(f"    ** Noise reduced to {current_noise:.2f} **")
+
             if opponent_pool.pool:
                 latest_opp = opponent_pool.pool[-1]["weights"]
                 eval_pool = evaluate_parallel(
@@ -1731,16 +1965,20 @@ def train_vectorized(config: TrainingConfig):
             if writer:
                 for k, v in eval_random.items():
                     writer.add_scalar(f"eval_random/{k}", v, completed_episodes)
+                for k, v in eval_rb.items():
+                    writer.add_scalar(f"eval_rulebot/{k}", v, completed_episodes)
                 for k, v in eval_pool.items():
                     writer.add_scalar(f"eval_pool/{k}", v, completed_episodes)
 
-            wr = eval_random["win_rate"]
+            # Best model tracking: save based on rule-bot WR (primary objective)
+            wr = eval_rb["win_rate"]
             if wr > best_win_rate:
                 best_win_rate = wr
                 best_path = os.path.join(config.checkpoint_dir,
-                                         f"best_ep{completed_episodes}_wr{wr:.3f}.pt")
+                                         f"best_ep{completed_episodes}_rb{wr:.3f}.pt")
                 save_checkpoint(best_path, agent, agent_opp, completed_episodes,
-                                global_step, best_win_rate, config, opponent_pool)
+                                global_step, best_win_rate, config, opponent_pool,
+                                current_noise)
                 best_models.append((wr, best_path))
                 best_models.sort(key=lambda x: x[0], reverse=True)
                 while len(best_models) > config.best_models_to_keep:
@@ -1755,11 +1993,12 @@ def train_vectorized(config: TrainingConfig):
             ckpt_path = os.path.join(config.checkpoint_dir,
                                      f"checkpoint_ep{completed_episodes}.pt")
             save_checkpoint(ckpt_path, agent, agent_opp, completed_episodes,
-                            global_step, best_win_rate, config, opponent_pool)
+                            global_step, best_win_rate, config, opponent_pool,
+                            current_noise)
 
     # --- Training complete ---
     print("\nTraining complete!")
-    print(f"Best win rate vs random: {best_win_rate:.1%}")
+    print(f"Best win rate vs rule bot: {best_win_rate:.1%}")
 
     if best_models:
         best_path = best_models[0][1]
@@ -1771,7 +2010,8 @@ def train_vectorized(config: TrainingConfig):
 
     final_path = os.path.join(config.checkpoint_dir, "checkpoint_final.pt")
     save_checkpoint(final_path, agent, agent_opp, config.num_episodes,
-                    global_step, best_win_rate, config, opponent_pool)
+                    global_step, best_win_rate, config, opponent_pool,
+                    current_noise)
 
     if writer:
         writer.close()

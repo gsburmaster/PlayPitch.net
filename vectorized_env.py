@@ -512,11 +512,17 @@ class VectorizedPitchEnv:
             )
         )
         # effective rank for trick winner calc: trump cards keep rank, others get 0
+        # Jack of trump gets +0.5 to beat off-jack (both rank 12)
+        is_jack_of_trump_trick = (tc_rank_v == 12) & (tc_suit_v == ts_exp4)
         eff_rank = torch.where(is_trump_trick, tc_rank_v.float(),
                                torch.zeros_like(tc_rank_v.float()))
+        eff_rank = eff_rank + 0.5 * is_jack_of_trump_trick.float()
         winner_rank = eff_rank.max(dim=1).values   # (N,) — 0 if trick empty
         trick_empty = tc_empty_v.all(dim=1)        # (N,)
-        can_beat = (trump_ranks.max(dim=1).values > winner_rank)
+        # Also boost jack of trump in hand for can_beat comparison
+        is_jack_of_trump_hand = (h_rank_long == 12) & (h_suit_long == ts_exp)
+        boosted_trump_ranks = trump_ranks + 0.5 * is_jack_of_trump_hand.float()
+        can_beat = (boosted_trump_ranks.max(dim=1).values > winner_rank)
         feat4 = torch.where(trick_empty, torch.ones(self.N, device=self.device),
                             can_beat.float())
 
@@ -524,7 +530,7 @@ class VectorizedPitchEnv:
         # Find who played the winning card
         tp = self.trick_players  # (N, 4) int8, -1 for empty
         trick_not_empty = ~tc_empty_v  # (N, 4)
-        # effective rank per slot (0 for empty)
+        # effective rank per slot (0 for empty, with jack-of-trump tiebreaker)
         winner_slot = eff_rank.argmax(dim=1)  # (N,)
         winner_player = tp[game_idx, winner_slot]  # (N,) int8
         partner_winning = (winner_player.long() % 2 == cp % 2).float()
@@ -689,12 +695,23 @@ class VectorizedPitchEnv:
         # Resolve completed tricks
         if trick_complete.any():
             self._resolve_tricks(trick_complete)
-            # Python env does current_player = (trick_winner + 1) % 4 after resolve
-            self.current_player = torch.where(
-                trick_complete,
-                ((self.current_player + 1) % 4).to(torch.int8),
-                self.current_player,
+            # Trick winner leads next; if they have no valid plays, skip them
+            winner_hands = self.hands[torch.arange(self.N, device=self.device)[trick_complete],
+                                      self.current_player[trick_complete].long()]  # (M, 10)
+            # Check if trick winner has valid plays (inline — _is_valid_play uses self.N shape)
+            w_suits = card_suit(winner_hands)
+            w_ranks = card_rank(winner_hands)
+            w_trump = self.trump_suit[trick_complete].unsqueeze(1)
+            w_oj = w_trump ^ 1
+            w_valid = (winner_hands != 0) & (
+                (w_suits == w_trump) | (winner_hands == JOKER_CODE) |
+                ((w_ranks == 12) & (w_suits == w_oj))
             )
+            no_valid = ~w_valid.any(dim=1)  # (M,) True if winner has no valid plays
+            # For winners with no valid plays: advance player and set iterator=1
+            tc_idx = torch.arange(self.N, device=self.device)[trick_complete]
+            self.current_player[tc_idx[no_valid]] = ((self.current_player[tc_idx[no_valid]] + 1) % 4).to(torch.int8)
+            self.playing_iterator[tc_idx[no_valid]] = 1
 
     def _handle_no_valid_play(self, actions: torch.Tensor):
         """Handle action 23 (no valid play) — check if round should end.
@@ -747,7 +764,10 @@ class VectorizedPitchEnv:
 
         # Winner: highest rank among trump cards
         # Non-trump cards get effective rank 0
-        eff_rank = torch.where(is_trump, ranks, torch.zeros_like(ranks))
+        # Jack of trump (rank 12, suit == trump) gets +0.5 to beat off-jack (rank 12)
+        is_jack_of_trump = (ranks == 12) & (suits == trump)
+        eff_rank = torch.where(is_trump, ranks.float(), torch.zeros(len(g), 4, device=self.device))
+        eff_rank = eff_rank + 0.5 * is_jack_of_trump.float()
         winner_pos = eff_rank.argmax(dim=1)  # (M,)
         winner_player = players.gather(
             1, winner_pos.unsqueeze(1).long()

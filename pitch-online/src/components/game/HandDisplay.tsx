@@ -11,7 +11,8 @@ interface HandDisplayProps {
   onPlayCard?: (index: number) => void;
 }
 
-const SUIT_ORDER: Record<number, number> = { 0: 0, 1: 1, 2: 2, 3: 3 };
+// Red-black-red-black: Hearts, Clubs, Diamonds, Spades
+const SUIT_ORDER: Record<number, number> = { 0: 0, 2: 1, 1: 2, 3: 3 };
 
 function sortedHandIndices(cards: CardData[]): number[] {
   return cards

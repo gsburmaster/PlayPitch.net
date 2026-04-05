@@ -1,10 +1,7 @@
-import sys
 import gymnasium as gym
 import numpy as np
-import os as os;
+import os
 from enum import Enum
-from typing import List, Tuple, Dict
-from pydantic import BaseModel
 import json
 
 #TODO LIST
@@ -264,10 +261,10 @@ class PitchEnv(gym.Env):
 
         pass
         
-    def step(self, action, current_obs):
-        observation = self._get_observation()
-        if observation['action_mask'][action] == 0:
-            valid_actions = np.where(observation['action_mask'] == 1)[0]
+    def step(self, action, current_obs=None):
+        mask = self._get_action_mask()
+        if mask[action] == 0:
+            valid_actions = np.where(mask == 1)[0]
             action = self.np_random.choice(valid_actions)
 
         team = self.current_player % 2
@@ -286,8 +283,6 @@ class PitchEnv(gym.Env):
         reward = self._calculate_reward(team, scores_before)
         observation = self._get_observation()
         info = {}
-        if (len(observation) != len(current_obs)):
-            print('we got issues')
         return observation, reward, terminated, truncated, info
 
     def _create_deck(self):
@@ -349,7 +344,11 @@ class PitchEnv(gym.Env):
                 return
             self._resolve_trick()
             self.playing_iterator = 0
-            self.current_player = (self.current_player + 1) % 4 
+            # Trick winner leads next (set by _resolve_trick);
+            # if they have no valid plays, advance clockwise
+            if not any(self._is_valid_play(c) for c in self.hands[self.current_player]):
+                self.current_player = (self.current_player + 1) % 4
+                self.playing_iterator = 1
             return
 
         self.current_player = (self.current_player + 1) % 4
@@ -420,7 +419,8 @@ class PitchEnv(gym.Env):
         
 
     def _resolve_trick(self):
-        winning_card_player_tuple = max(self.current_trick, key=lambda c: (self._is_valid_play(c[0]), c[0].rank))
+        winning_card_player_tuple = max(self.current_trick, key=lambda c: (self._is_valid_play(c[0]), c[0].rank,
+                                                                            1 if (c[0].rank == 12 and c[0].suit == self.trump_suit) else 0))
         self.trick_winner = winning_card_player_tuple[1]
         self.tricks.append(self.current_trick)
         self.current_trick = []
@@ -460,6 +460,13 @@ class PitchEnv(gym.Env):
             return self.scores[0] - self.scores[1] >= t or (self.scores[0] >= t and self.current_high_bidder % 2 == 0)
         return self.scores[1] - self.scores[0] >= t or (self.scores[1] >= t and self.current_high_bidder % 2 == 1)
 
+    def _team_won(self, team):
+        """Check if the given team (0 or 1) has won the game."""
+        t = self.win_threshold
+        other = 1 - team
+        return (self.scores[team] - self.scores[other] >= t or
+                (self.scores[team] >= t and self.current_high_bidder % 2 == team))
+
     def _calculate_reward(self, team, scores_before):
         other_team = 1 - team
         # Trick-level: points my team won minus points other team won
@@ -468,9 +475,14 @@ class PitchEnv(gym.Env):
         # e.g. bid 7 and only took 4 → scores drop by 7, reward reflects that
         score_delta = (self.scores[team] - scores_before[team]) - (self.scores[other_team] - scores_before[other_team])
         reward += score_delta
-        # Game-end bonus
+        # Game-end bonus: use team (captured before action) not current_player
+        # (which may have changed during _end_round)
         if self._check_game_end():
-            reward += 100 if self._check_current_player_win() else -100
+            margin = self.scores[team] - self.scores[other_team]
+            if self._team_won(team):
+                reward += 10 + min(abs(margin) / 5.0, 10)
+            else:
+                reward -= 10 + min(abs(margin) / 5.0, 10)
         return reward
 
     def _get_observation(self):
@@ -539,21 +551,23 @@ class PitchEnv(gym.Env):
             else:
                 feats[3] = 0.0
 
-            # 4: can_win_trick (1 if leading OR any trump beats current winner)
+            # Find current trick winner (shared by feats 4 and 5)
             if not self.current_trick:
                 feats[4] = 1.0  # leading
-            else:
-                winner_rank = max(self.current_trick,
-                                  key=lambda t: (self._is_valid_play(t[0]), t[0].rank))[0].rank
-                feats[4] = 1.0 if any(c.rank > winner_rank for c in trump_cards) else 0.0
-
-            # 5: partner_winning
-            if self.current_trick:
-                winner_player = max(self.current_trick,
-                                    key=lambda t: (self._is_valid_play(t[0]), t[0].rank))[1]
-                feats[5] = 1.0 if winner_player % 2 == my_team else 0.0
-            else:
                 feats[5] = 0.0
+            else:
+                winner_card, winner_player = max(
+                    self.current_trick,
+                    key=lambda t: (self._is_valid_play(t[0]), t[0].rank,
+                                   1 if (t[0].rank == 12 and t[0].suit == self.trump_suit) else 0))
+                # 4: can_win_trick
+                feats[4] = 1.0 if any(
+                    c.rank > winner_card.rank or
+                    (c.rank == 12 and c.suit == self.trump_suit and self._is_off_jack(winner_card))
+                    for c in trump_cards
+                ) else 0.0
+                # 5: partner_winning
+                feats[5] = 1.0 if winner_player % 2 == my_team else 0.0
 
         # 6: am_high_bidder (always)
         feats[6] = 1.0 if self.current_high_bidder == cp else 0.0
@@ -594,22 +608,23 @@ class PitchEnv(gym.Env):
             if not anyTrue:
                 mask = np.zeros(self.num_actions, dtype=np.int8)
                 mask[23] = 1
-        if (len(np.where(mask == 1)) == 0):
+        if np.count_nonzero(mask) == 0:
             print('something failed')
             raise Exception
         
         return mask
     
-    def _is_off_jack(self,card):
+    _OFF_JACK_PAIR = {
+        Suit.CLUBS: Suit.SPADES,
+        Suit.SPADES: Suit.CLUBS,
+        Suit.DIAMONDS: Suit.HEARTS,
+        Suit.HEARTS: Suit.DIAMONDS,
+    }
+
+    def _is_off_jack(self, card):
         if card.rank != 12:
             return False
-        switch = {
-            Suit.CLUBS: card.suit == Suit.SPADES,
-            Suit.SPADES: card.suit == Suit.CLUBS,
-            Suit.DIAMONDS: card.suit == Suit.HEARTS,
-            Suit.HEARTS: card.suit == Suit.DIAMONDS
-        }
-        return switch.get(self.trump_suit)
+        return card.suit == self._OFF_JACK_PAIR.get(self.trump_suit)
 
     #returns if a card is a valid play for current game
     def _is_valid_play(self, card):

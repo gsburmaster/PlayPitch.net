@@ -478,7 +478,7 @@ class TestPitchEnv(unittest.TestCase):
         self.env.current_player = 0
         self.env.last_trick_points = [0, 0]
         reward = self.env._calculate_reward(team=0, scores_before=[54, 0])
-        self.assertEqual(reward, 100)
+        self.assertEqual(reward, 20)
 
     def test_reward_game_end_loss(self):
         self.env.reset()
@@ -487,7 +487,7 @@ class TestPitchEnv(unittest.TestCase):
         self.env.current_player = 1
         self.env.last_trick_points = [0, 0]
         reward = self.env._calculate_reward(team=1, scores_before=[54, 0])
-        self.assertEqual(reward, -100)
+        self.assertEqual(reward, -20)
 
     # --- Game end ---
 
@@ -598,6 +598,56 @@ class TestPitchEnv(unittest.TestCase):
         self.assertEqual(self.env.current_high_bidder, first_bidder)
 
     # --- Resolve trick with joker ---
+
+    def test_resolve_trick_jack_of_trump_beats_off_jack(self):
+        """Jack of trump must beat off-jack even though both have rank 12"""
+        self.env.reset()
+        self.env.trump_suit = Suit.HEARTS
+        # Off-jack played first, jack of trump played later — jack of trump should win
+        self.env.current_trick = [
+            (Card(Suit.DIAMONDS, 12), 0),  # off-jack (rank 12)
+            (Card(Suit.HEARTS, 4), 1),
+            (Card(Suit.HEARTS, 12), 2),    # jack of trump (rank 12)
+            (Card(Suit.HEARTS, 6), 3)
+        ]
+        self.env._resolve_trick()
+        self.assertEqual(self.env.trick_winner, 2)  # Jack of trump wins
+
+    def test_resolve_trick_jack_of_trump_beats_off_jack_reversed(self):
+        """Jack of trump played first still beats off-jack played later"""
+        self.env.reset()
+        self.env.trump_suit = Suit.HEARTS
+        self.env.current_trick = [
+            (Card(Suit.HEARTS, 12), 0),    # jack of trump
+            (Card(Suit.HEARTS, 4), 1),
+            (Card(Suit.DIAMONDS, 12), 2),  # off-jack
+            (Card(Suit.HEARTS, 6), 3)
+        ]
+        self.env._resolve_trick()
+        self.assertEqual(self.env.trick_winner, 0)  # Jack of trump still wins
+
+    def test_no_bonus_turn_after_trick_winner_skip(self):
+        """When trick winner has no valid plays and gets skipped, no phantom 4th turn"""
+        self.env.reset()
+        self.env.trump_suit = Suit.HEARTS
+        self.env.phase = Phase.PLAYING
+        self.env.current_player = 0
+        self.env.playing_iterator = 0
+        # Player 2 will win the trick but has no valid plays for next trick
+        self.env.hands[0] = [Card(Suit.HEARTS, 4), Card(Suit.HEARTS, 5)]
+        self.env.hands[1] = [Card(Suit.HEARTS, 6), Card(Suit.HEARTS, 7)]
+        self.env.hands[2] = [Card(Suit.HEARTS, 15)]  # Ace wins, but only 1 card
+        self.env.hands[3] = [Card(Suit.HEARTS, 8), Card(Suit.HEARTS, 9)]
+
+        # Play the trick: 0→4, 1→6, 2→Ace, 3→8
+        self.env._handle_play(0)  # player 0 plays 4
+        self.env._handle_play(0)  # player 1 plays 6
+        self.env._handle_play(0)  # player 2 plays Ace
+        self.env._handle_play(0)  # player 3 plays 8 → trick resolves
+
+        # Player 2 won but has no cards left → skipped, player 3 leads
+        self.assertEqual(self.env.current_player, 3)
+        self.assertEqual(self.env.playing_iterator, 1)  # skipped player counted
 
     def test_resolve_trick_joker_loses_to_trump(self):
         self.env.reset()

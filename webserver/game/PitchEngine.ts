@@ -310,7 +310,9 @@ export class PitchEngine {
       this.playingIterator = 0;
       // Trick winner leads next; if they have no valid plays, advance clockwise
       if (!this.playerHasValidPlay(this.currentPlayer)) {
+        events.push({ type: "noValidPlay", data: { seatIndex: this.currentPlayer } });
         this.currentPlayer = (this.currentPlayer + 1) % 4;
+        this.playingIterator = 1;
       }
       return events;
     }
@@ -448,6 +450,10 @@ export class PitchEngine {
       if (challengerValid && !currentValid) {
         winnerIdx = i;
       } else if (challengerValid && currentValid && challenger.card.rank > current.card.rank) {
+        winnerIdx = i;
+      } else if (challengerValid && currentValid && challenger.card.rank === current.card.rank
+                 && challenger.card.rank === 12 && challenger.card.suit === this.trumpSuit) {
+        // Jack of trump beats off-jack
         winnerIdx = i;
       }
     }

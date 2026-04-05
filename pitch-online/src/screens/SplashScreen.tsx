@@ -1,17 +1,18 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "react-bootstrap";
 import CreateGameModal from "../components/modals/CreateGameModal";
 import JoinGameModal from "../components/modals/JoinGameModal";
 import HowToPlayModal from "../components/modals/HowToPlayModal";
 import PrivacyPolicyModal from "../components/modals/PrivacyPolicyModal";
-import { useAppDispatch } from "../contexts/AppContext";
+import RejoinGameModal from "../components/modals/RejoinGameModal";
+import { useAppDispatch, loadSession, clearSession, type StoredSession } from "../contexts/AppContext";
 import { useToast } from "../components/common/Toast";
 import type { SeatIndex } from "../types";
 import "../styles/splash.css";
 
 const API_BASE = import.meta.env.VITE_API_URL || "";
 
-type ModalView = "none" | "create" | "join" | "rules" | "privacy";
+type ModalView = "none" | "create" | "join" | "rules" | "privacy" | "rejoin";
 
 export default function SplashScreen() {
   const dispatch = useAppDispatch();
@@ -20,6 +21,55 @@ export default function SplashScreen() {
   const [displayName, setDisplayName] = useState("");
   const [loading, setLoading] = useState(false);
   const [joinError, setJoinError] = useState("");
+  const [storedSession, setStoredSession] = useState<StoredSession | null>(null);
+
+  // On mount, check for a saved session we can rejoin
+  useEffect(() => {
+    const session = loadSession();
+    if (!session) return;
+
+    const abort = new AbortController();
+    fetch(`${API_BASE}/api/rooms/${session.roomCode}`, { signal: abort.signal })
+      .then((res) => {
+        if (!res.ok) {
+          clearSession();
+          return;
+        }
+        return res.json();
+      })
+      .then((data) => {
+        if (!data) return;
+        if (data.state === "gameOver" || data.state === "closed") {
+          clearSession();
+          return;
+        }
+        setStoredSession(session);
+        setModalView("rejoin");
+      })
+      .catch((err) => {
+        if (err.name !== "AbortError") clearSession();
+      });
+
+    return () => abort.abort();
+  }, []);
+
+  const handleRejoin = () => {
+    if (!storedSession) return;
+    dispatch({ type: "SET_NAME", name: storedSession.displayName });
+    dispatch({
+      type: "ROOM_JOINED",
+      playerId: storedSession.playerId,
+      roomCode: storedSession.roomCode,
+      seatIndex: storedSession.seatIndex,
+      isCreator: false,
+    });
+  };
+
+  const handleDismissRejoin = () => {
+    clearSession();
+    setStoredSession(null);
+    setModalView("none");
+  };
 
   const isValid = displayName.trim().length >= 1 && displayName.length <= 16;
 
@@ -137,6 +187,12 @@ export default function SplashScreen() {
       <PrivacyPolicyModal
         show={modalView === "privacy"}
         onClose={() => setModalView("none")}
+      />
+      <RejoinGameModal
+        show={modalView === "rejoin"}
+        roomCode={storedSession?.roomCode ?? ""}
+        onRejoin={handleRejoin}
+        onDismiss={handleDismissRejoin}
       />
     </div>
   );

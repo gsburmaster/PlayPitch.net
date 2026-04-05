@@ -1,6 +1,37 @@
 import { createContext, useContext, useReducer, type Dispatch, type ReactNode } from "react";
 import type { AppView, SeatIndex } from "../types";
 
+const SESSION_KEY = "pitch_session";
+
+export interface StoredSession {
+  playerId: string;
+  roomCode: string;
+  displayName: string;
+  seatIndex: SeatIndex;
+}
+
+export function saveSession(session: StoredSession): void {
+  try {
+    localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  } catch { /* private browsing — degrade silently */ }
+}
+
+export function loadSession(): StoredSession | null {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as StoredSession;
+  } catch {
+    return null;
+  }
+}
+
+export function clearSession(): void {
+  try {
+    localStorage.removeItem(SESSION_KEY);
+  } catch { /* ignore */ }
+}
+
 export interface AppState {
   currentView: AppView;
   displayName: string;
@@ -34,6 +65,12 @@ function appReducer(state: AppState, action: AppAction): AppState {
     case "SET_NAME":
       return { ...state, displayName: action.name };
     case "ROOM_JOINED":
+      saveSession({
+        playerId: action.playerId,
+        roomCode: action.roomCode,
+        displayName: state.displayName,
+        seatIndex: action.seatIndex,
+      });
       return {
         ...state,
         currentView: "lobby",
@@ -47,6 +84,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
     case "RETURN_TO_LOBBY":
       return { ...state, currentView: "lobby" };
     case "RETURN_TO_SPLASH":
+      clearSession();
       return { ...initialState, displayName: state.displayName };
     case "SET_CONNECTION_STATUS":
       return { ...state, connectionStatus: action.status };

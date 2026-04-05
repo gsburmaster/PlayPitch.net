@@ -88,6 +88,7 @@ export function createRoomRoutes(roomManager: RoomManager): Router {
       seats: room.getSeats(),
       gameInProgress: room.state === "playing",
       creatorSeat: room.creatorSeat,
+      state: room.state,
     });
   });
 

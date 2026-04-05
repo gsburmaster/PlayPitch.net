@@ -1,5 +1,5 @@
 import { useRef, useCallback, useEffect } from "react";
-import { useAppState, useAppDispatch } from "../contexts/AppContext";
+import { useAppState, useAppDispatch, clearSession } from "../contexts/AppContext";
 import { useGameDispatch } from "../contexts/GameContext";
 import { useToast } from "../components/common/Toast";
 import { useSound } from "./useSound";
@@ -238,6 +238,7 @@ export function useWebSocket() {
         break;
 
       case "game:over": {
+        clearSession();
         const winner = msg.winner as 0 | 1;
         gameDispatch({
           type: "GAME_OVER",
@@ -269,6 +270,9 @@ export function useWebSocket() {
 
       case "error":
         addToast(String(msg.message || "Server error"), "error");
+        if (msg.code === "ROOM_NOT_FOUND" || msg.code === "PLAYER_NOT_FOUND") {
+          appDispatch({ type: "RETURN_TO_SPLASH" });
+        }
         break;
 
       case "pong":

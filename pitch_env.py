@@ -364,6 +364,17 @@ class PitchEnv(gym.Env):
             p = (player + self.dealer) % 4
             self.hands[p] = [card for card in self.hands[p] if self._is_valid_play(card)]
 
+        # Phase 1.5: Burn excess cards if hand > 6 (auto-burn lowest rank non-pointers first)
+        for player in range(4):
+            p = (player + self.dealer) % 4
+            while len(self.hands[p]) > 6:
+                non_pointers = [c for c in self.hands[p] if self._card_points(c) == 0]
+                if non_pointers:
+                    worst = min(non_pointers, key=lambda c: c.rank)
+                else:
+                    worst = min(self.hands[p], key=lambda c: (self._card_points(c), c.rank))
+                self.hands[p].remove(worst)
+
         # Phase 2: All players fill to 6 from deck in dealer order
         for player in range(4):
             p = (player + self.dealer) % 4

@@ -336,6 +336,25 @@ export class PitchEngine {
       this.hands[p] = this.hands[p].filter((card) => this.isValidPlay(card));
     }
 
+    // Phase 1.5: Burn excess cards if hand > 6 (auto-burn lowest rank non-pointers first)
+    for (let player = 0; player < 4; player++) {
+      const p = (player + this.dealer) % 4;
+      while (this.hands[p].length > 6) {
+        const nonPointers = this.hands[p].filter((c) => cardPoints(c) === 0);
+        let worstIdx: number;
+        if (nonPointers.length > 0) {
+          const worst = nonPointers.reduce((a, b) => (a.rank <= b.rank ? a : b));
+          worstIdx = this.hands[p].indexOf(worst);
+        } else {
+          worstIdx = this.hands[p].reduce((minIdx, c, i, arr) => {
+            const minCard = arr[minIdx];
+            return cardPoints(c) < cardPoints(minCard) || (cardPoints(c) === cardPoints(minCard) && c.rank < minCard.rank) ? i : minIdx;
+          }, 0);
+        }
+        this.hands[p].splice(worstIdx, 1);
+      }
+    }
+
     // Phase 2: All players fill to 6 from deck in dealer order
     for (let player = 0; player < 4; player++) {
       const p = (player + this.dealer) % 4;

@@ -198,6 +198,39 @@ export class PitchEngine {
     ];
   }
 
+  /**
+   * Deep-copy the full game state for search simulations (IS-MCTS).
+   * Cards are copied by value; the broadcast callback is dropped so that
+   * stepping a clone (which may trigger newRound/dealCards) fires no events.
+   */
+  clone(): PitchEngine {
+    const c = new PitchEngine(this.winThreshold);
+    c.onDeckShuffled = null;
+    const copyCard = (card: Card): Card => ({ suit: card.suit, rank: card.rank });
+    const copyEntry = (e: TrickEntry): TrickEntry => ({ card: copyCard(e.card), seatIndex: e.seatIndex });
+
+    c.deck = this.deck.map(copyCard);
+    c.hands = this.hands.map((h) => h.map(copyCard));
+    c.roundScores = [this.roundScores[0], this.roundScores[1]];
+    c.scores = [this.scores[0], this.scores[1]];
+    c.currentBid = this.currentBid;
+    c.currentHighBidder = this.currentHighBidder;
+    c.dealer = this.dealer;
+    c.currentPlayer = this.currentPlayer;
+    c.trumpSuit = this.trumpSuit;
+    c.phase = this.phase;
+    c.tricks = this.tricks.map((t) => t.map(copyEntry));
+    c.playedCards = this.playedCards.map(copyCard);
+    c.currentTrick = this.currentTrick.map(copyEntry);
+    c.trickWinner = this.trickWinner;
+    c.playerCardsTaken = [...this.playerCardsTaken];
+    c.numberOfRoundsPlayed = this.numberOfRoundsPlayed;
+    c.playingIterator = this.playingIterator;
+    c.gameOver = this.gameOver;
+    c.winner = this.winner;
+    return c;
+  }
+
   // --- Private methods ---
 
   private createDeck(): Card[] {
@@ -444,7 +477,7 @@ export class PitchEngine {
     // Check game end
     if (this.checkGameEnd()) {
       this.gameOver = true;
-      this.winner = this.scores[0] >= this.scores[1] ? 0 : 1;
+      this.winner = this.determineWinner();
       events.push({
         type: "gameOver",
         data: {
@@ -518,6 +551,23 @@ export class PitchEngine {
       (this.scores[0] >= t && this.currentHighBidder % 2 === 0) ||
       (this.scores[1] >= t && this.currentHighBidder % 2 === 1)
     );
+  }
+
+  /**
+   * Winner per Auction Pitch rules (mirrors pitch_env._team_won): a team wins by
+   * leading by the threshold, OR by being the high bidder that reached the
+   * threshold — the bidder "goes out" on their made bid even if trailing in total
+   * points. (The previous `scores[0] >= scores[1]` was a bug: it handed the win to
+   * the higher total instead of the bidder who went out.)
+   */
+  private determineWinner(): 0 | 1 {
+    const t = this.winThreshold;
+    const hb = this.currentHighBidder % 2;
+    const team0Won = this.scores[0] - this.scores[1] >= t || (this.scores[0] >= t && hb === 0);
+    const team1Won = this.scores[1] - this.scores[0] >= t || (this.scores[1] >= t && hb === 1);
+    if (team0Won && !team1Won) return 0;
+    if (team1Won && !team0Won) return 1;
+    return this.scores[0] >= this.scores[1] ? 0 : 1; // 50-round / tie fallback
   }
 
   isOffJack(card: Card): boolean {

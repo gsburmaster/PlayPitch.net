@@ -13,6 +13,13 @@ import type {
 
 export type RoomState = "lobby" | "playing" | "gameOver" | "closed";
 
+// AI think-time config (env-tunable). Default 0 → the deployed agent is the pure
+// trained model (single forward pass). Set AI_SEARCH_MS>0 to opt into inference-time
+// search over the model's own policy/value (diagnostic / optional, not the goal).
+const AI_SEARCH_MS = Number(process.env.AI_SEARCH_MS ?? "0");
+const AI_PACING_MIN_MS = Number(process.env.AI_PACING_MIN_MS ?? "400");
+const AI_PACING_JITTER_MS = Number(process.env.AI_PACING_JITTER_MS ?? "500");
+
 export class Room {
   code: string;
   state: RoomState = "lobby";
@@ -406,15 +413,19 @@ export class Room {
     if (!currentPlayer?.isAI) return;
 
     this._aiTurnPending = true;
-    // Random delay 800-2000ms
-    const delay = 800 + Math.floor(Math.random() * 1200);
+    // Pacing delay (UX floor). The heavier think-time happens inside
+    // pickAIAction via determinized search during the PLAYING phase.
+    const delay = AI_PACING_MIN_MS + Math.floor(Math.random() * AI_PACING_JITTER_MS);
     this._aiTimeout = setTimeout(async () => {
       this._aiTurnPending = false;
       this._aiTimeout = null;
       if (this.state !== "playing" || this.engine.gameOver) return;
       if (this.engine.currentPlayer !== currentSeat) return;
 
-      const action = await pickAIAction(this.engine, this.code);
+      const action = await pickAIAction(this.engine, this.code, { searchBudgetMs: AI_SEARCH_MS });
+      // Re-check after the (possibly long) search await before mutating state.
+      if (this.state !== "playing" || this.engine.gameOver) return;
+      if (this.engine.currentPlayer !== currentSeat) return;
       this.executeAction(action);
     }, delay);
   }

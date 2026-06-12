@@ -17,3 +17,6 @@ webserver/dist/
 
 # Debug/scratch files
 jsonErr*.json
+# Training run dirs (checkpoints, tensorboard)
+checkpoints_*/
+agent_v11*.onnx

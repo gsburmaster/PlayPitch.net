@@ -77,6 +77,7 @@ class PitchEnv(gym.Env):
             'phase': gym.spaces.Discrete(3),  # 0: bidding, 1: choosing suit, 2: playing
             'action_mask': gym.spaces.Box(low=0, high=1, shape=(self.num_actions,), dtype=np.int8),
             'derived_features': gym.spaces.Box(low=0, high=1, shape=(10,), dtype=np.float32),
+            'bid_features': gym.spaces.Box(low=0, high=1, shape=(12,), dtype=np.float32),
         })
         self.reset()
 
@@ -106,6 +107,7 @@ class PitchEnv(gym.Env):
             'phase': gym.spaces.Discrete(3),  # 0: bidding, 1: choosing suit, 2: playing
             'action_mask': gym.spaces.Box(low=0, high=1, shape=(self.num_actions,), dtype=np.int8),
             'derived_features': gym.spaces.Box(low=0, high=1, shape=(10,), dtype=np.float32),
+            'bid_features': gym.spaces.Box(low=0, high=1, shape=(12,), dtype=np.float32),
         })
         try:
             self.deck = deck
@@ -531,6 +533,7 @@ class PitchEnv(gym.Env):
             'player_cards_taken': np.array(self.player_cards_taken, dtype=np.int8),
             'action_mask': self._get_action_mask(),
             'derived_features': self._get_derived_features(),
+            'bid_features': self._get_bid_features(),
         }
 
     def _get_derived_features(self) -> np.ndarray:
@@ -594,6 +597,31 @@ class PitchEnv(gym.Env):
         total_scored = sum(self.round_scores)
         feats[9] = 1.0 - min(total_scored, 9) / 9.0
 
+        return feats
+
+    def _get_bid_features(self) -> np.ndarray:
+        """Per-suit hand-strength features (12 = 4 suits x 3), so the bidding/suit
+        heads can see trump strength for each candidate trump — the signal the
+        derived features omit during BIDDING/CHOOSESUIT. For each suit: trump
+        points, trump card count, and highest trump rank if that suit were trump."""
+        feats = np.zeros(12, dtype=np.float32)
+        hand = self.hands[self.current_player]
+        for s in Suit:
+            off_jack = self._OFF_JACK_PAIR.get(s)
+            pts = 0
+            cnt = 0
+            hi = 0
+            for c in hand:
+                is_trump = (c.suit == s) or (c.rank == 11) or (c.rank == 12 and c.suit == off_jack)
+                if is_trump:
+                    pts += self._card_points(c)
+                    cnt += 1
+                    if c.rank > hi:
+                        hi = c.rank
+            base = s.value * 3
+            feats[base + 0] = pts / 10.0
+            feats[base + 1] = cnt / 9.0
+            feats[base + 2] = (hi - 2) / 13.0 if hi > 0 else 0.0
         return feats
 
     def _get_action_mask(self):

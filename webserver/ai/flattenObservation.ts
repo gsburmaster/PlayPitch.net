@@ -1,5 +1,5 @@
 import { PitchEngine } from "../game/PitchEngine.js";
-import { Phase, cardPoints } from "../game/constants.js";
+import { Phase, cardPoints, OFF_JACK_MAP, Suit } from "../game/constants.js";
 import type { Card } from "../game/constants.js";
 
 /**
@@ -23,11 +23,12 @@ import type { Card } from "../game/constants.js";
  *   player_cards_taken (4,) = 4
  *   action_mask       (24,) = 24
  *   derived_features  (10,) = 10
+ *   bid_features      (12,) = 12   — per-suit hand strength (trump pts/count/high)
  *   ─────────────────────────
- *   Total:                  129
+ *   Total:                  141
  */
 export function flattenObservation(engine: PitchEngine, seatIndex: number): Float32Array {
-  const out = new Float32Array(129);
+  const out = new Float32Array(141);
   let offset = 0;
 
   // helper to write a card (suit, rank) pair
@@ -123,28 +124,42 @@ export function flattenObservation(engine: PitchEngine, seatIndex: number): Floa
     out[offset++] = 0.0;
   }
 
-  // Find current trick winner (shared by feats 4 and 5)
+  // Find current trick winner (shared by feats 4 and 5).
+  // Mirrors pitch_env._get_derived_features: order by (isValidPlay, rank,
+  // isJackOfTrump) so the jack of trump outranks the equal-rank off-jack.
+  const isJackOfTrump = (card: Card): boolean =>
+    card.rank === 12 && card.suit !== null && card.suit === engine.trumpSuit;
   let trickWinnerEntry = isPlaying && engine.currentTrick.length > 0
     ? engine.currentTrick[0]
     : null;
   if (trickWinnerEntry) {
     for (let i = 1; i < engine.currentTrick.length; i++) {
       const challenger = engine.currentTrick[i];
-      const challValid = engine.isValidPlay(challenger.card);
-      const curValid = engine.isValidPlay(trickWinnerEntry.card);
-      if ((challValid && !curValid) ||
-          (challValid && curValid && challenger.card.rank > trickWinnerEntry.card.rank)) {
+      const cv = engine.isValidPlay(challenger.card) ? 1 : 0;
+      const wv = engine.isValidPlay(trickWinnerEntry.card) ? 1 : 0;
+      const challengerWins =
+        cv !== wv
+          ? cv > wv
+          : challenger.card.rank !== trickWinnerEntry.card.rank
+            ? challenger.card.rank > trickWinnerEntry.card.rank
+            : (isJackOfTrump(challenger.card) ? 1 : 0) > (isJackOfTrump(trickWinnerEntry.card) ? 1 : 0);
+      if (challengerWins) {
         trickWinnerEntry = challenger;
       }
     }
   }
 
-  // feat 4: can_win_trick
+  // feat 4: can_win_trick — a trump card outranks the winner, or the jack of
+  // trump beats the off-jack currently winning.
   if (isPlaying) {
     if (!trickWinnerEntry) {
       out[offset++] = 1.0; // leading
     } else {
-      const canBeat = trumpCards.some((c) => c.rank > trickWinnerEntry.card.rank);
+      const winner = trickWinnerEntry;
+      const canBeat = trumpCards.some(
+        (c) => c.rank > winner.card.rank ||
+          (isJackOfTrump(c) && engine.isOffJack(winner.card)),
+      );
       out[offset++] = canBeat ? 1.0 : 0.0;
     }
   } else {
@@ -172,6 +187,26 @@ export function flattenObservation(engine: PitchEngine, seatIndex: number): Floa
   // feat 9: point_cards_remaining (always)
   const totalScored = engine.roundScores[0] + engine.roundScores[1];
   out[offset++] = 1.0 - Math.min(totalScored, 9) / 9.0;
+
+  // bid_features (12) — per-suit hand strength, mirrors pitch_env._get_bid_features().
+  // For each suit: trump points / count / highest rank if that suit were trump.
+  for (let s = 0; s < 4; s++) {
+    const offJack = OFF_JACK_MAP[s as Suit];
+    let pts = 0;
+    let cnt = 0;
+    let hi = 0;
+    for (const c of hand) {
+      const isTrump = c.suit === s || c.rank === 11 || (c.rank === 12 && c.suit === offJack);
+      if (isTrump) {
+        pts += cardPoints(c);
+        cnt += 1;
+        if (c.rank > hi) hi = c.rank;
+      }
+    }
+    out[offset++] = pts / 10.0;
+    out[offset++] = cnt / 9.0;
+    out[offset++] = hi > 0 ? (hi - 2) / 13.0 : 0.0;
+  }
 
   return out;
 }

@@ -103,18 +103,28 @@ class PPOActorCritic(nn.Module):
     Phase routing: both heads run, output selected by phase_index in obs.
     """
 
-    def __init__(self, input_dim: int = 129, output_dim: int = 24,
+    def __init__(self, input_dim: int = 141, output_dim: int = 24,
                  lstm_hidden: int = 128, head_hidden: int = 64,
-                 multi_head: bool = True, phase_index: int = 89):
+                 multi_head: bool = True, phase_index: int = 89,
+                 use_lstm: bool = True):
         super().__init__()
         self.lstm_hidden = lstm_hidden
         self.output_dim = output_dim
         self.multi_head = multi_head
         self.phase_index = phase_index
+        self.use_lstm = use_lstm
 
         self.norm = nn.LayerNorm(input_dim)
         self.proj = nn.Linear(input_dim, lstm_hidden)
-        self.lstm = nn.LSTM(lstm_hidden, lstm_hidden, num_layers=1, batch_first=True)
+        if use_lstm:
+            self.lstm = nn.LSTM(lstm_hidden, lstm_hidden, num_layers=1, batch_first=True)
+        else:
+            # Feedforward backbone — no recurrence, so train==serve (kills the
+            # per-seat/shared LSTM mismatch). Hidden state becomes vestigial.
+            self.mlp = nn.Sequential(
+                nn.Linear(lstm_hidden, lstm_hidden), nn.ReLU(),
+                nn.Linear(lstm_hidden, lstm_hidden), nn.ReLU(),
+            )
 
         if multi_head:
             self.bid_head = nn.Sequential(
@@ -145,18 +155,22 @@ class PPOActorCritic(nn.Module):
         """Returns: logits (B,T,24), values (B,T), h_out (1,B,128), c_out (1,B,128)."""
         x = self.norm(obs)
         x = F.relu(self.proj(x))               # (B, T, lstm_hidden)
-        lstm_out, (h_out, c_out) = self.lstm(x, (h, c))  # (B, T, lstm_hidden)
+        if self.use_lstm:
+            feat, (h_out, c_out) = self.lstm(x, (h, c))  # (B, T, lstm_hidden)
+        else:
+            feat = self.mlp(x)                 # (B, T, lstm_hidden)
+            h_out, c_out = h, c                # vestigial hidden, passed through unchanged
 
         if self.multi_head:
-            bid_logits = self.bid_head(lstm_out)    # (B, T, 24)
-            play_logits = self.play_head(lstm_out)  # (B, T, 24)
+            bid_logits = self.bid_head(feat)    # (B, T, 24)
+            play_logits = self.play_head(feat)  # (B, T, 24)
             # Phase.PLAYING = 2; select play_head for playing, bid_head otherwise
             is_playing = (obs[:, :, self.phase_index] == 2).unsqueeze(-1)  # (B, T, 1)
             logits = torch.where(is_playing, play_logits, bid_logits)
         else:
-            logits = self.actor(lstm_out)
+            logits = self.actor(feat)
 
-        values = self.critic(lstm_out).squeeze(-1)  # (B, T)
+        values = self.critic(feat).squeeze(-1)  # (B, T)
         return logits, values, h_out, c_out
 
     @torch.no_grad()
@@ -192,11 +206,15 @@ class PPOActorCritic(nn.Module):
             head_hidden=old_model.actor[0].out_features,
             multi_head=True,
             phase_index=phase_index,
+            use_lstm=old_model.use_lstm,
         )
         # Copy backbone + critic
         new.norm.load_state_dict(old_model.norm.state_dict())
         new.proj.load_state_dict(old_model.proj.state_dict())
-        new.lstm.load_state_dict(old_model.lstm.state_dict())
+        if old_model.use_lstm:
+            new.lstm.load_state_dict(old_model.lstm.state_dict())
+        else:
+            new.mlp.load_state_dict(old_model.mlp.state_dict())
         new.critic.load_state_dict(old_model.critic.state_dict())
         # Both heads start as copies of the old single actor
         new.bid_head.load_state_dict(old_model.actor.state_dict())
@@ -429,6 +447,7 @@ def load_opponent_net(
         head_hidden=config.head_hidden,
         multi_head=config.multi_head,
         phase_index=config.phase_index,
+        use_lstm=config.use_lstm,
     ).to(device)
     ckpt = torch.load(path, map_location=device, weights_only=False)
     # Handle single-head → multi-head upgrade
@@ -1022,6 +1041,7 @@ def train_ppo(config: PPOConfig) -> None:
         head_hidden=config.head_hidden,
         multi_head=config.multi_head,
         phase_index=config.phase_index,
+        use_lstm=config.use_lstm,
     ).to(device)
 
     trainer = PPOTrainer(

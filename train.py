@@ -135,17 +135,15 @@ def get_device(config: TrainingConfig) -> torch.device:
 # ---------------------------------------------------------------------------
 
 def flatten_observation(obs: Dict) -> np.ndarray:
-    out = np.empty(129, dtype=np.float32)
-    i = 0
+    # Dynamic length: concatenates all array/scalar obs fields in insertion order.
+    # (Was hardcoded to 129; now adapts to added features, e.g. bid_features → 141.)
+    parts = []
     for value in obs.values():
         if isinstance(value, np.ndarray):
-            n = value.size
-            out[i:i + n] = value.ravel()
-            i += n
+            parts.append(value.ravel().astype(np.float32))
         elif isinstance(value, (int, np.integer)):
-            out[i] = value
-            i += 1
-    return out
+            parts.append(np.array([value], dtype=np.float32))
+    return np.concatenate(parts)
 
 
 # ---------------------------------------------------------------------------

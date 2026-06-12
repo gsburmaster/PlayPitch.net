@@ -10,12 +10,13 @@ class PPOConfig:
     device: str = "auto"
 
     # Network
-    input_dim: int = 129
+    input_dim: int = 141       # 129 base obs + 12 per-suit bid_features
     output_dim: int = 24
-    lstm_hidden: int = 128
+    lstm_hidden: int = 128     # backbone width (LSTM hidden, or MLP width if use_lstm=False)
     head_hidden: int = 64
-    phase_index: int = 89      # index of 'phase' in flattened obs (Phase.PLAYING=2)
+    phase_index: int = 89      # index of 'phase' in flattened obs (Phase.PLAYING=2); unchanged (bid_features appended at end)
     multi_head: bool = True    # use phase-specific actor heads
+    use_lstm: bool = False     # False → feedforward MLP backbone (train==serve, no LSTM mismatch)
 
     # PPO hyperparameters
     clip_eps: float = 0.2
@@ -57,7 +58,7 @@ class PPOConfig:
 
     # ONNX
     onnx_output: str = "agent_ppo.onnx"
-    onnx_opset: int = 17
+    onnx_opset: int = 13       # 17's native LayerNormalization is numerically broken in onnxruntime-node (logits off by ~2.7 → ~11pt WR loss); 13 decomposes it and matches PyTorch to 1e-4
 
     # Behavioral cloning pretrain
     bc_games: int = 20_000       # rule-bot self-play games for pretraining

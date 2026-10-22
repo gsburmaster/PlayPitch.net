@@ -19,15 +19,19 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           command_timeout: 5m
           script: |
+            set -e
             export BUN_INSTALL="$HOME/.bun"
             export PATH="$BUN_INSTALL/bin:$PATH"
             if ! command -v bun &> /dev/null; then
               curl -fsSL https://bun.sh/install | bash
             fi
             cd /opt/pitch/
-            git pull origin main
+            # bun versions differ between machines and rewrite bun.lock; drop that
+            # rewrite so the pull isn't blocked, and never write it back.
+            git checkout -- pitch-online/bun.lock
+            git pull --ff-only origin main
             cd pitch-online
-            bun install
+            bun install --no-save
             bun run build
             cd ..
             sudo docker compose up -d --build

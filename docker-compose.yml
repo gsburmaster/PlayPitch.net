@@ -11,4 +11,5 @@ services:
     environment:
       - NODE_ENV=production
       - NODE_OPTIONS=--max-old-space-size=256
+      - AI_SEARCH_MS=${AI_SEARCH_MS:-600}
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-https://www.playpitch.net,https://playpitch.net}

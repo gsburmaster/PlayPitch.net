@@ -1,8 +1,12 @@
 import { describe, it, expect } from "vitest";
 import { PitchEngine } from "../game/PitchEngine.js";
 import { Suit, Phase, Card } from "../game/constants.js";
+import { pickRuleBotAction } from "../eval/ruleBot.js";
 import {
   determinize,
+  consistentDeterminize,
+  trumpCountPosterior,
+  voidSeats,
   ismctsSearch,
   onePlyLookahead,
   type Evaluator,
@@ -185,5 +189,87 @@ describe("onePlyLookahead", () => {
     const e = makePlayingEngine();
     const action = await onePlyLookahead(e, 0, { evaluate: uniformEval });
     expect(e.getActionMask()[action]).toBe(1);
+  });
+});
+
+/** PLAYING-phase states from rule-bot games (real discard/fill history). */
+function realPlayingStates(nGames: number, every = 3): PitchEngine[] {
+  const out: PitchEngine[] = [];
+  for (let g = 0; g < nGames; g++) {
+    const e = new PitchEngine(54);
+    e.reset(g % 4);
+    for (let step = 0; step < 3000 && !e.gameOver; step++) {
+      if (e.phase === Phase.PLAYING && step % every === 0) out.push(e.clone());
+      e.step(pickRuleBotAction(e));
+    }
+  }
+  return out;
+}
+
+const trumpsHeld = (e: PitchEngine, p: number) => e.hands[p].filter((c) => e.isValidPlay(c)).length;
+
+describe("consistentDeterminize", () => {
+  const states = realPlayingStates(15);
+
+  it("preserves the root hand, sizes and the hidden-card multiset", () => {
+    const rng = mulberry32(1);
+    for (const e of states) {
+      const root = e.currentPlayer;
+      const others = [0, 1, 2, 3].filter((p) => p !== root);
+      const sim = consistentDeterminize(e, root, rng);
+      expect(sim.hands[root]).toEqual(e.hands[root]);
+      for (let p = 0; p < 4; p++) expect(sim.hands[p]).toHaveLength(e.hands[p].length);
+      expect(sim.deck).toHaveLength(e.deck.length);
+      expect(multiset([...others.flatMap((p) => sim.hands[p]), ...sim.deck]))
+        .toEqual(multiset([...others.flatMap((p) => e.hands[p]), ...e.deck]));
+    }
+  });
+
+  it("always has the true trump counts in the posterior's support", () => {
+    for (const e of states) {
+      const root = e.currentPlayer;
+      const others = [0, 1, 2, 3].filter((p) => p !== root);
+      const unseen = [...others.flatMap((p) => e.hands[p]), ...e.deck].filter((c) => e.isValidPlay(c));
+      const post = trumpCountPosterior(e, root, unseen.length);
+      expect(post).not.toBeNull();
+      expect(post!.probs.reduce((s, x) => s + x, 0)).toBeCloseTo(1, 9);
+      const truth = others.map((p) => trumpsHeld(e, p));
+      expect(post!.outcomes.some((o) => others.every((p, i) => o[p] === truth[i]))).toBe(true);
+    }
+  });
+
+  it("never gives a shown-void seat a trump", () => {
+    const rng = mulberry32(2);
+    let checked = 0;
+    for (const e of realPlayingStates(15, 1)) {
+      const root = e.currentPlayer;
+      const cache = {};
+      for (const p of voidSeats(e)) {
+        if (p === root) continue;
+        for (let k = 0; k < 3; k++) expect(trumpsHeld(consistentDeterminize(e, root, rng, cache), p)).toBe(0);
+        checked++;
+      }
+    }
+    expect(checked).toBeGreaterThan(0);
+  });
+
+  it("guesses hidden trump counts much better than a uniform re-deal", () => {
+    const rng = mulberry32(3);
+    let errU = 0;
+    let errC = 0;
+    for (const e of states) {
+      const root = e.currentPlayer;
+      const cache = {};
+      for (let k = 0; k < 5; k++) {
+        const u = determinize(e, root, rng);
+        const c = consistentDeterminize(e, root, rng, cache);
+        for (let p = 0; p < 4; p++) {
+          if (p === root) continue;
+          errU += Math.abs(trumpsHeld(u, p) - trumpsHeld(e, p));
+          errC += Math.abs(trumpsHeld(c, p) - trumpsHeld(e, p));
+        }
+      }
+    }
+    expect(errC).toBeLessThan(0.6 * errU);
   });
 });

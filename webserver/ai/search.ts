@@ -37,6 +37,7 @@ export interface SearchOptions {
   evaluate?: Evaluator;    // injectable; defaults to the ONNX model
   rng?: Rng;               // injectable; defaults to Math.random
   marginScale?: number;    // scales round-margin terminal values into tanh (default 0.25)
+  consistentWorlds?: boolean; // sample hidden hands from public discard/draw info (default true)
 }
 
 const DEFAULT_BUDGET_MS = 600;
@@ -88,6 +89,168 @@ export function determinize(engine: PitchEngine, rootSeat: number, rng: Rng): Pi
     idx += sizes[p];
   }
   sim.deck = pool.slice(idx, idx + deckSize);
+  return sim;
+}
+
+const FILL_DECK_SIZE = 18; // 54 cards - 4 * 9 dealt
+
+function shuffle<T>(a: T[], rng: Rng): void {
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    const tmp = a[i];
+    a[i] = a[j];
+    a[j] = tmp;
+  }
+}
+
+function comb(n: number, k: number): number {
+  if (k < 0 || k > n) return 0;
+  let r = 1;
+  for (let i = 0; i < k; i++) r = (r * (n - i)) / (i + 1);
+  return r;
+}
+
+/** Seats that have had a turn in a trick without playing = out of trump. */
+export function voidSeats(engine: PitchEngine): Set<number> {
+  const out = new Set<number>();
+  for (const trick of engine.tricks) {
+    const played = new Set(trick.map((e) => e.seatIndex));
+    for (let p = 0; p < 4; p++) if (!played.has(p)) out.add(p);
+  }
+  const inTrick = new Set(engine.currentTrick.map((e) => e.seatIndex));
+  for (let i = 1; i <= engine.playingIterator; i++) {
+    const p = (engine.currentPlayer - i + 4) % 4;
+    if (!inTrick.has(p)) out.add(p);
+  }
+  return out;
+}
+
+/** Possible trump counts per hidden hand (indexed by seat), with probabilities. */
+export interface TrumpPosterior {
+  outcomes: number[][];
+  probs: number[];
+}
+
+/**
+ * Exact distribution of how many trumps each hidden hand holds now, from the
+ * public discard-and-fill facts (mirrors mcts._trump_count_posterior). Every kept
+ * (undrawn) card is a trump, so the leftover deck's trump count follows; each
+ * seat's draws are hypergeometric; given the drawn-trump counts the
+ * bidder-then-partner swaps are deterministic. Draw combinations that don't
+ * reproduce the root's own trump count, the remaining deck size, the shown voids
+ * or the hand sizes are dropped. Returns null if nothing is consistent.
+ */
+export function trumpCountPosterior(
+  engine: PitchEngine,
+  rootSeat: number,
+  nUnseenTrumps: number,
+): TrumpPosterior | null {
+  const drawn = engine.playerCardsTaken.map((t) => t + 1); // counter starts at -1
+  const played = [0, 0, 0, 0]; // every play is a trump
+  for (const trick of engine.tricks) for (const e of trick) played[e.seatIndex]++;
+  for (const e of engine.currentTrick) played[e.seatIndex]++;
+  // Post-fill hand = cards held now + cards played; the part that wasn't drawn
+  // was kept, and every kept card is a trump.
+  const kept = [0, 1, 2, 3].map((p) => engine.hands[p].length + played[p] - drawn[p]);
+  const rootFill =
+    engine.hands[rootSeat].filter((c) => engine.isValidPlay(c)).length + played[rootSeat];
+  const others = [0, 1, 2, 3].filter((p) => p !== rootSeat);
+  const deckTrumps =
+    nUnseenTrumps + others.reduce((s, p) => s + played[p], 0) + rootFill -
+    kept.reduce((s, k) => s + k, 0);
+  if (deckTrumps < 0 || deckTrumps > FILL_DECK_SIZE) return null;
+  const isVoid = voidSeats(engine);
+  const bidder = engine.currentHighBidder;
+  const order = [0, 1, 2, 3].map((i) => (i + engine.dealer) % 4);
+
+  const outcomes: number[][] = [];
+  const weights: number[] = [];
+  const got = [0, 0, 0, 0];
+
+  const expand = (i: number, nLeft: number, tLeft: number, prob: number): void => {
+    if (i < 4) {
+      const p = order[i];
+      const d = drawn[p];
+      if (d > nLeft) return;
+      for (let x = Math.max(0, d - (nLeft - tLeft)); x <= Math.min(d, tLeft); x++) {
+        const q = (comb(tLeft, x) * comb(nLeft - tLeft, d - x)) / comb(nLeft, d);
+        got[p] = x;
+        expand(i + 1, nLeft - d, tLeft - x, prob * q);
+      }
+      return;
+    }
+    const fill = [0, 1, 2, 3].map((p) => kept[p] + got[p]);
+    for (const p of [bidder, (bidder + 2) % 4]) {
+      const swaps = Math.min(drawn[p] - got[p], tLeft);
+      fill[p] += swaps;
+      tLeft -= swaps;
+      nLeft -= swaps;
+    }
+    // The deck size left after the swaps is public, so it pins the total swaps.
+    if (fill[rootSeat] !== rootFill || nLeft !== engine.deck.length) return;
+    const now = [0, 1, 2, 3].map((p) => fill[p] - played[p]);
+    if (others.every((p) => now[p] >= 0 && now[p] <= engine.hands[p].length &&
+                            (!isVoid.has(p) || now[p] === 0))) {
+      outcomes.push(now);
+      weights.push(prob);
+    }
+  };
+
+  expand(0, FILL_DECK_SIZE, deckTrumps, 1);
+  if (outcomes.length === 0) return null;
+  const total = weights.reduce((s, w) => s + w, 0);
+  return { outcomes, probs: weights.map((w) => w / total) };
+}
+
+/**
+ * Like determinize(), but each hidden hand gets a trump count consistent with
+ * what the root player has seen, drawn from the exact distribution
+ * (trumpCountPosterior); which trumps go where is still uniform. Non-trumps can
+ * never be played, so only the trumps matter for play. Falls back to
+ * determinize() if nothing is consistent.
+ *
+ * The distribution depends only on what the root has seen, so a search passes
+ * the same cache object to every call and it is computed once.
+ */
+export function consistentDeterminize(
+  engine: PitchEngine,
+  rootSeat: number,
+  rng: Rng,
+  cache: { posterior?: TrumpPosterior | null } = {},
+): PitchEngine {
+  if (engine.phase !== Phase.PLAYING) return determinize(engine, rootSeat, rng);
+  const others = [0, 1, 2, 3].filter((p) => p !== rootSeat);
+  const pool = [...others.flatMap((p) => engine.hands[p]), ...engine.deck];
+  const trumps = pool.filter((c) => engine.isValidPlay(c));
+  const junk = pool.filter((c) => !engine.isValidPlay(c));
+  if (cache.posterior === undefined) {
+    cache.posterior = trumpCountPosterior(engine, rootSeat, trumps.length);
+  }
+  const posterior = cache.posterior;
+  if (posterior === null) return determinize(engine, rootSeat, rng);
+
+  let u = rng();
+  let k = 0;
+  while (k < posterior.outcomes.length - 1 && u >= posterior.probs[k]) {
+    u -= posterior.probs[k];
+    k++;
+  }
+  const counts = posterior.outcomes[k];
+
+  const sim = engine.clone();
+  shuffle(trumps, rng);
+  shuffle(junk, rng);
+  let t = 0;
+  let j = 0;
+  for (const p of others) {
+    const nT = counts[p];
+    const nJ = engine.hands[p].length - nT;
+    sim.hands[p] = [...trumps.slice(t, t + nT), ...junk.slice(j, j + nJ)];
+    t += nT;
+    j += nJ;
+  }
+  sim.deck = [...trumps.slice(t), ...junk.slice(j)];
+  if (sim.deck.length !== engine.deck.length) return determinize(engine, rootSeat, rng); // pool can't fit these counts
   return sim;
 }
 
@@ -296,10 +459,14 @@ export async function ismctsSearch(
   // (the hidden re-deal never changes what the root player can see).
   root.priors = softmaxPriors(rootEval.policy, rootMask);
 
+  const consistent = opts.consistentWorlds ?? true;
+  const worldsCache = {};
   const deadline = Date.now() + budgetMs;
   let sims = 0;
   while (sims < maxSims && Date.now() < deadline) {
-    const sim = determinize(engine, rootSeat, rng);
+    const sim = consistent
+      ? consistentDeterminize(engine, rootSeat, rng, worldsCache)
+      : determinize(engine, rootSeat, rng);
     await simulate(sim, root, rootSeat, rootTeam, cPuct, marginScale, evaluate);
     sims++;
   }

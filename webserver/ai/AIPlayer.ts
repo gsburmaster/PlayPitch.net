@@ -40,6 +40,29 @@ const MODEL_DIR = path.resolve(import.meta.dirname, "../../../");
 const MODEL_PATH = process.env.PITCH_MODEL_PATH
   ? path.resolve(process.env.PITCH_MODEL_PATH)
   : path.join(MODEL_DIR, "agent_0_longtraining.onnx");
+// Separate bid/trump-suit model (distill_bids.py BidNet: "state" [B,141] -> "logits"
+// [B,24]); if missing, the main model bids as before.
+const BID_MODEL_PATH = process.env.PITCH_BID_MODEL_PATH
+  ? path.resolve(process.env.PITCH_BID_MODEL_PATH)
+  : path.join(MODEL_DIR, "agent_0_bid.onnx");
+let bidSession: ort.InferenceSession | null = null;
+let bidLoadAttempted = false;
+
+export async function getBidSession(): Promise<ort.InferenceSession | null> {
+  if (bidLoadAttempted) return bidSession;
+  bidLoadAttempted = true;
+  if (!fs.existsSync(BID_MODEL_PATH)) {
+    console.log(`Bid model not found at ${BID_MODEL_PATH} — main model will bid`);
+    return null;
+  }
+  try {
+    bidSession = await ort.InferenceSession.create(BID_MODEL_PATH);
+    console.log(`Loaded bid model from ${BID_MODEL_PATH}`);
+  } catch (err) {
+    console.error("Failed to load bid model, main model will bid:", err);
+  }
+  return bidSession;
+}
 
 export async function getSession(): Promise<ort.InferenceSession | null> {
   if (session) return session;
@@ -114,6 +137,7 @@ async function loadModel(): Promise<ort.InferenceSession | null> {
  */
 export async function initAIModel(): Promise<void> {
   await loadModel();
+  await getBidSession();
 }
 
 /**
@@ -161,8 +185,12 @@ export async function pickAIAction(
     const obs = flattenObservation(engine, seatIndex);
 
     let scores: Float32Array;
+    const bidSess = engine.phase !== Phase.PLAYING ? await getBidSession() : null;
 
-    if (modelHasLSTM) {
+    if (bidSess) {
+      const results = await bidSess.run({ state: new ort.Tensor("float32", obs, [1, obs.length]) });
+      scores = results["logits"].data as Float32Array;
+    } else if (modelHasLSTM) {
       // PPO+LSTM model: pass hidden state, get logits back
       const hidden = getHidden(roomCode, seatIndex);
       const stateTensor = new ort.Tensor("float32", obs, [1, 1, obs.length]);

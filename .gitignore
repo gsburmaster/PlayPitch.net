@@ -12,6 +12,7 @@ webserver/dist/
 # Training artifacts
 *.onnx
 !agent_0_longtraining.onnx
+!agent_0_bid.onnx
 *.pt
 !checkpoints/*_final.pt
 

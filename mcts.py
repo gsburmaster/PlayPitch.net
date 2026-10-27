@@ -53,6 +53,131 @@ def determinize(env: PitchEnv, root_player: int,
     return sim
 
 
+N_TRUMPS = 16        # 13 of the trump suit + off-jack + 2 jokers
+FILL_DECK_SIZE = 18  # 54 cards - 4 * 9 dealt
+
+
+def _void_players(env: PitchEnv) -> set:
+    """Players who have had a turn in a trick without playing = out of trump."""
+    void = set()
+    for trick in env.tricks:
+        played = {p for _, p in trick}
+        void.update(p for p in range(4) if p not in played)
+    in_trick = {p for _, p in env.current_trick}
+    for i in range(1, env.playing_iterator + 1):
+        p = (env.current_player - i) % 4
+        if p not in in_trick:
+            void.add(p)
+    return void
+
+
+def _trump_count_posterior(env: PitchEnv, root_player: int, n_unseen_trumps: int):
+    """Exact distribution of how many trumps each hidden hand holds now, from the
+    public discard-and-fill facts. Every kept (undrawn) card is a trump, so the
+    leftover deck's trump count follows; each player's draws are hypergeometric;
+    given the drawn-trump counts the bidder-then-partner swaps and the remaining
+    deck are deterministic. Draw combinations that don't reproduce the root's own
+    trump count, the remaining deck size, the shown voids or the hand sizes are
+    dropped. Returns (list of {player: trumps}, probabilities) or None."""
+    drawn = [t + 1 for t in env.player_cards_taken]          # counter starts at -1
+    played = [0, 0, 0, 0]                                    # every play is a trump
+    for trick in env.tricks:
+        for _, p in trick:
+            played[p] += 1
+    for _, p in env.current_trick:
+        played[p] += 1
+    # Post-fill hand = cards held now + cards played (usually 6, fewer if the deck
+    # ran out); the part that wasn't drawn was kept, and every kept card is a trump.
+    kept = [len(env.hands[p]) + played[p] - drawn[p] for p in range(4)]
+    root_fill = sum(env._is_valid_play(c) for c in env.hands[root_player]) + played[root_player]
+    others = [p for p in range(4) if p != root_player]
+    deck_trumps = (n_unseen_trumps + sum(played[p] for p in others)
+                   + root_fill - sum(kept))
+    if not 0 <= deck_trumps <= FILL_DECK_SIZE:
+        return None
+    void = _void_players(env)
+    bidder = env.current_high_bidder
+    order = [(i + env.dealer) % 4 for i in range(4)]
+
+    outcomes, weights = [], []
+
+    def expand(i, n_left, t_left, got, prob):
+        if i < 4:
+            p = order[i]
+            d = drawn[p]
+            if d > n_left:
+                return
+            for x in range(max(0, d - (n_left - t_left)), min(d, t_left) + 1):
+                q = (math.comb(t_left, x) * math.comb(n_left - t_left, d - x)
+                     / math.comb(n_left, d))
+                got[p] = x
+                expand(i + 1, n_left - d, t_left - x, got, prob * q)
+            return
+        fill = [kept[p] + got[p] for p in range(4)]
+        for p in (bidder, (bidder + 2) % 4):
+            swaps = min(drawn[p] - got[p], t_left)
+            fill[p] += swaps
+            t_left -= swaps
+            n_left -= swaps
+        # The deck size left after the swaps is public, so it pins the total swaps.
+        if fill[root_player] != root_fill or n_left != len(env.deck):
+            return
+        now = {p: fill[p] - played[p] for p in others}
+        if all(0 <= now[p] <= len(env.hands[p]) and (p not in void or now[p] == 0)
+               for p in others):
+            outcomes.append(now)
+            weights.append(prob)
+
+    expand(0, FILL_DECK_SIZE, deck_trumps, [0, 0, 0, 0], 1.0)
+    if not outcomes:
+        return None
+    w = np.array(weights)
+    return outcomes, w / w.sum()
+
+
+def consistent_determinize(env: PitchEnv, root_player: int, rng: np.random.Generator,
+                           cache: list = None) -> PitchEnv:
+    """Like determinize(), but each hidden hand gets a trump count consistent with
+    what the root player has seen, drawn from the exact distribution
+    (_trump_count_posterior); which trumps go where is still uniform. Non-trumps can
+    never be played, so only the trumps matter for play. Falls back to determinize()
+    if nothing is consistent.
+
+    The distribution depends only on what the root has seen, so a search passes the
+    same (initially empty) `cache` list to every call and it is computed once."""
+    if env.phase != Phase.PLAYING:
+        return determinize(env, root_player, rng)
+    others = [p for p in range(4) if p != root_player]
+    pool = [c for p in others for c in env.hands[p]] + list(env.deck)
+    trumps = [c for c in pool if env._is_valid_play(c)]
+    junk = [c for c in pool if not env._is_valid_play(c)]
+    if cache is None:
+        cache = []
+    if not cache:
+        cache.append(_trump_count_posterior(env, root_player, len(trumps)))
+    posterior = cache[0]
+    if posterior is None:
+        return determinize(env, root_player, rng)
+    outcomes, probs = posterior
+    counts = outcomes[rng.choice(len(outcomes), p=probs)]
+
+    sim = env.deep_copy()
+    sim.np_random = rng
+    rng.shuffle(trumps)
+    rng.shuffle(junk)
+    t = j = 0
+    for p in others:
+        n_t = counts[p]
+        n_j = len(env.hands[p]) - n_t
+        sim.hands[p] = trumps[t:t + n_t] + junk[j:j + n_j]
+        t += n_t
+        j += n_j
+    sim.deck = trumps[t:] + junk[j:]
+    if len(sim.deck) != len(env.deck):        # pool can't fit these counts
+        return determinize(env, root_player, rng)
+    return sim
+
+
 def _step_env(env, action, obs):
     """Step env and return (obs, terminated_or_left_playing)."""
     obs, _, term, _, _ = env.step(action, obs)

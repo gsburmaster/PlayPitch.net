@@ -1,6 +1,6 @@
 import type { WebSocket } from "ws";
 import { PitchEngine } from "../game/PitchEngine.js";
-import { cardToData } from "../game/constants.js";
+import { cardToData, Phase } from "../game/constants.js";
 import { GameLogger } from "../game/GameLogger.js";
 import { pickAIAction, getAIModelStatus, resetAIHiddenStates } from "../ai/AIPlayer.js";
 import type {
@@ -414,20 +414,29 @@ export class Room {
 
     this._aiTurnPending = true;
     // Pacing delay (UX floor). The heavier think-time happens inside
-    // pickAIAction via determinized search during the PLAYING phase.
+    // pickAIAction via determinized search during the PLAYING phase. A searched
+    // move searches through the pacing delay instead of sleeping first, so it
+    // gets more simulations without the AI taking longer to move.
     const delay = AI_PACING_MIN_MS + Math.floor(Math.random() * AI_PACING_JITTER_MS);
+    const searchesThroughDelay = AI_SEARCH_MS > 0 && this.engine.phase === Phase.PLAYING;
     this._aiTimeout = setTimeout(async () => {
       this._aiTurnPending = false;
       this._aiTimeout = null;
       if (this.state !== "playing" || this.engine.gameOver) return;
       if (this.engine.currentPlayer !== currentSeat) return;
 
-      const action = await pickAIAction(this.engine, this.code, { searchBudgetMs: AI_SEARCH_MS });
+      const started = Date.now();
+      const action = await pickAIAction(this.engine, this.code, {
+        searchBudgetMs: searchesThroughDelay ? AI_SEARCH_MS + delay : AI_SEARCH_MS,
+      });
+      // A move that skipped search (e.g. only one legal card) still waits out the delay.
+      const remaining = searchesThroughDelay ? delay - (Date.now() - started) : 0;
+      if (remaining > 0) await new Promise((resolve) => setTimeout(resolve, remaining));
       // Re-check after the (possibly long) search await before mutating state.
       if (this.state !== "playing" || this.engine.gameOver) return;
       if (this.engine.currentPlayer !== currentSeat) return;
       this.executeAction(action);
-    }, delay);
+    }, searchesThroughDelay ? 0 : delay);
   }
 
   // --- Play again ---

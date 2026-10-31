@@ -10,6 +10,7 @@ import {
   ismctsSearch,
   onePlyLookahead,
   type Evaluator,
+  type BatchEvaluator,
 } from "../ai/search.js";
 
 // Deterministic PRNG so determinization/search tests are reproducible.
@@ -167,6 +168,32 @@ describe("ismctsSearch", () => {
     const snapshot = JSON.stringify({ hands: e.hands, deck: e.deck, scores: e.scores });
     await ismctsSearch(e, 0, { evaluate: uniformEval, rng: mulberry32(3), maxSims: 30, budgetMs: 100000 });
     expect(JSON.stringify({ hands: e.hands, deck: e.deck, scores: e.scores })).toBe(snapshot);
+  });
+
+  it("batches the net calls of parallel simulations", async () => {
+    const sizes: number[] = [];
+    const evaluateBatch: BatchEvaluator = async (ps) => {
+      sizes.push(ps.length);
+      return ps.map(() => ({ policy: new Array(24).fill(0), value: 0 }));
+    };
+    const e = makePlayingEngine();
+    const action = await ismctsSearch(e, 0, {
+      evaluateBatch, rng: mulberry32(5), maxSims: 64, parallelSims: 8, budgetMs: 100000,
+    });
+    expect(e.getActionMask()[action]).toBe(1);
+    expect(Math.max(...sizes)).toBe(8);
+    expect(sizes.reduce((s, n) => s + n, 0) / sizes.length).toBeGreaterThan(4);
+  });
+
+  it("rejects instead of hanging when a batched net call fails", async () => {
+    let calls = 0;
+    const evaluateBatch: BatchEvaluator = async (ps) => {
+      if (++calls === 3) throw new Error("net failed");
+      return ps.map(() => ({ policy: new Array(24).fill(0), value: 0 }));
+    };
+    await expect(ismctsSearch(makePlayingEngine(), 0, {
+      evaluateBatch, rng: mulberry32(6), maxSims: 64, parallelSims: 8, budgetMs: 100000,
+    })).rejects.toThrow("net failed");
   });
 });
 

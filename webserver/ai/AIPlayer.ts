@@ -110,6 +110,38 @@ export async function evaluatePolicyValue(
   return { policy, value: maxQ };
 }
 
+/**
+ * evaluatePolicyValue for many positions in one model call (search batches the
+ * net calls of its parallel simulations). For a net this small the per-call
+ * overhead dominates, so a batch of 16 costs about as much as 1.5 single calls.
+ */
+export async function evaluatePolicyValueBatch(
+  positions: { engine: PitchEngine; seat: number }[],
+): Promise<{ policy: Float32Array; value: number }[] | null> {
+  const sess = await getSession();
+  if (!sess) return null;
+  if (!modelHasLSTM) {
+    // DQN fallback: evaluated one position at a time.
+    const evs = await Promise.all(positions.map(({ engine, seat }) => evaluatePolicyValue(engine, seat)));
+    return evs as { policy: Float32Array; value: number }[];
+  }
+
+  const B = positions.length;
+  const obs = positions.map(({ engine, seat }) => flattenObservation(engine, seat));
+  const D = obs[0].length;
+  const state = new Float32Array(B * D);
+  obs.forEach((o, i) => state.set(o, i * D));
+  const results = await sess.run({
+    state: new ort.Tensor("float32", state, [B, 1, D]),
+    h_in: new ort.Tensor("float32", new Float32Array(B * HIDDEN_SIZE), [1, B, HIDDEN_SIZE]),
+    c_in: new ort.Tensor("float32", new Float32Array(B * HIDDEN_SIZE), [1, B, HIDDEN_SIZE]),
+  });
+  const logits = results["logits"].data as Float32Array;
+  const value = results["value"].data as Float32Array;
+  const A = logits.length / B;
+  return positions.map((_, i) => ({ policy: logits.subarray(i * A, (i + 1) * A), value: value[i] }));
+}
+
 async function loadModel(): Promise<ort.InferenceSession | null> {
   loadAttempted = true;
 

@@ -14,11 +14,15 @@
  * three seats (partner + two opponents) play the net's greedy action. This keeps
  * the tree shallow (a round is <=6 of the root player's decisions) and fast.
  *
+ * Simulations run several at a time and their net calls go to the model as one
+ * batch, which is far cheaper per position than single calls; virtual loss keeps
+ * the simulations in flight from all following the same line.
+ *
  * The evaluator is injectable so tests can run without the ONNX model.
  */
 import { PitchEngine } from "../game/PitchEngine.js";
 import { Phase, Card, NUM_ACTIONS } from "../game/constants.js";
-import { evaluatePolicyValue } from "./AIPlayer.js";
+import { evaluatePolicyValue, evaluatePolicyValueBatch } from "./AIPlayer.js";
 
 export interface Evaluation {
   /** Raw action scores (logits for PPO, Q-values for DQN), length 24. */
@@ -28,6 +32,7 @@ export interface Evaluation {
 }
 
 export type Evaluator = (engine: PitchEngine, seat: number) => Promise<Evaluation>;
+export type BatchEvaluator = (positions: { engine: PitchEngine; seat: number }[]) => Promise<Evaluation[]>;
 export type Rng = () => number;
 
 export interface SearchOptions {
@@ -35,6 +40,8 @@ export interface SearchOptions {
   maxSims?: number;        // hard cap on determinized simulations
   cPuct?: number;          // exploration constant (default 1.5)
   evaluate?: Evaluator;    // injectable; defaults to the ONNX model
+  evaluateBatch?: BatchEvaluator; // injectable batched form; takes precedence over `evaluate`
+  parallelSims?: number;   // simulations run side by side, net calls batched (default 16)
   rng?: Rng;               // injectable; defaults to Math.random
   marginScale?: number;    // scales round-margin terminal values into tanh (default 0.25)
   consistentWorlds?: boolean; // sample hidden hands from public discard/draw info (default true)
@@ -43,11 +50,19 @@ export interface SearchOptions {
 const DEFAULT_BUDGET_MS = 600;
 const DEFAULT_CPUCT = 1.5;
 const DEFAULT_MARGIN_SCALE = 0.25;
+const DEFAULT_PARALLEL_SIMS = 16;
+const VIRTUAL_LOSS = 1;   // value charged per in-flight simulation through a node
 const ADVANCE_GUARD = 40; // safety cap on opponent advances per call
 const DEPTH_GUARD = 30;   // safety cap on tree depth per simulation
 
 const onnxEvaluator: Evaluator = async (engine, seat) => {
   const r = await evaluatePolicyValue(engine, seat);
+  if (!r) throw new Error("search: ONNX model unavailable");
+  return r;
+};
+
+const onnxBatchEvaluator: BatchEvaluator = async (positions) => {
+  const r = await evaluatePolicyValueBatch(positions);
   if (!r) throw new Error("search: ONNX model unavailable");
   return r;
 };
@@ -342,17 +357,54 @@ interface Node {
   visits: number;
   value: number; // sum of backed-up leaf values (root-team perspective)
   priors: Map<number, number> | null;
+  inflight: number; // simulations currently passing through, not yet backed up
 }
 
 function newNode(): Node {
-  return { children: new Map(), visits: 0, value: 0, priors: null };
+  return { children: new Map(), visits: 0, value: 0, priors: null, inflight: 0 };
+}
+
+function enter(path: Node[], node: Node): void {
+  node.inflight++;
+  path.push(node);
 }
 
 function backup(path: Node[], v: number): void {
   for (const node of path) {
+    node.inflight--;
     node.visits++;
     node.value += v;
   }
+}
+
+/**
+ * Lets parallel simulations share net calls: each call queues its position, and
+ * once every running simulation is waiting the queue goes to the model as one
+ * batch. Simulations only ever wait on the evaluator, so no batch is missed.
+ */
+function batchingEvaluator(evaluateBatch: BatchEvaluator, running: number) {
+  type Pending = { engine: PitchEngine; seat: number; resolve: (e: Evaluation) => void; reject: (err: unknown) => void };
+  let queue: Pending[] = [];
+  const flush = (): void => {
+    const batch = queue;
+    queue = [];
+    evaluateBatch(batch.map(({ engine, seat }) => ({ engine, seat }))).then(
+      (evs) => batch.forEach((p, i) => p.resolve(evs[i])),
+      (err) => batch.forEach((p) => p.reject(err)),
+    );
+  };
+  return {
+    evaluate: ((engine, seat) =>
+      new Promise<Evaluation>((resolve, reject) => {
+        queue.push({ engine, seat, resolve, reject });
+        if (queue.length === running) flush();
+      })) as Evaluator,
+    /** A simulation loop has stopped for good. */
+    finish(): void {
+      running--;
+      if (running > 0 && queue.length === running) flush();
+    },
+  };
 }
 
 async function simulate(
@@ -364,7 +416,8 @@ async function simulate(
   marginScale: number,
   evaluate: Evaluator,
 ): Promise<void> {
-  const path: Node[] = [root];
+  const path: Node[] = [];
+  enter(path, root);
   let node = root;
   const marginBefore = sim.scores[rootTeam] - sim.scores[1 - rootTeam];
   let depth = 0;
@@ -380,7 +433,7 @@ async function simulate(
 
     if (node.priors === null) {
       const ev = await evaluate(sim, rootSeat);
-      node.priors = softmaxPriors(ev.policy, mask);
+      node.priors ??= softmaxPriors(ev.policy, mask); // a parallel sim may have set it meanwhile
     }
 
     const unexpanded = valid.filter((a) => !node.children.has(a));
@@ -397,7 +450,7 @@ async function simulate(
       }
       const child = newNode();
       node.children.set(a, child);
-      path.push(child);
+      enter(path, child);
       sim.step(a);
       await advanceOpponents(sim, rootSeat, evaluate);
       const v = isDone(sim)
@@ -407,15 +460,18 @@ async function simulate(
       return;
     }
 
-    // Fully expanded: descend by PUCT.
-    const parentVisits = Math.max(1, node.visits);
+    // Fully expanded: descend by PUCT. Other simulations still in flight count
+    // as visits that lost (virtual loss), so parallel sims spread out. With one
+    // simulation at a time this is plain PUCT (the -1 discounts this sim itself).
+    const parentVisits = Math.max(1, node.visits + node.inflight - 1);
     let a = valid[0];
     let bestScore = -Infinity;
     for (const act of valid) {
       const child = node.children.get(act) as Node;
-      const q = child.visits > 0 ? child.value / child.visits : 0;
+      const n = child.visits + child.inflight;
+      const q = n > 0 ? (child.value - VIRTUAL_LOSS * child.inflight) / n : 0;
       const p = node.priors.get(act) ?? 0;
-      const u = cPuct * p * Math.sqrt(parentVisits) / (1 + child.visits);
+      const u = cPuct * p * Math.sqrt(parentVisits) / (1 + n);
       const score = q + u;
       if (score > bestScore) {
         bestScore = score;
@@ -423,7 +479,7 @@ async function simulate(
       }
     }
     node = node.children.get(a) as Node;
-    path.push(node);
+    enter(path, node);
     sim.step(a);
     await advanceOpponents(sim, rootSeat, evaluate);
   }
@@ -443,16 +499,19 @@ export async function ismctsSearch(
   rootSeat: number,
   opts: SearchOptions = {},
 ): Promise<number> {
-  const evaluate = opts.evaluate ?? onnxEvaluator;
+  const single = opts.evaluate;
+  const evaluateBatch: BatchEvaluator = opts.evaluateBatch ??
+    (single ? (ps) => Promise.all(ps.map(({ engine: e, seat }) => single(e, seat))) : onnxBatchEvaluator);
   const rng = opts.rng ?? Math.random;
   const cPuct = opts.cPuct ?? DEFAULT_CPUCT;
   const marginScale = opts.marginScale ?? DEFAULT_MARGIN_SCALE;
   const budgetMs = opts.budgetMs ?? DEFAULT_BUDGET_MS;
   const maxSims = opts.maxSims ?? Number.MAX_SAFE_INTEGER;
+  const parallel = Math.max(1, Math.min(opts.parallelSims ?? DEFAULT_PARALLEL_SIMS, maxSims));
   const rootTeam = rootSeat % 2;
 
   const rootMask = engine.getActionMask();
-  const rootEval = await evaluate(engine, rootSeat);
+  const [rootEval] = await evaluateBatch([{ engine, seat: rootSeat }]);
 
   const root = newNode();
   // Root priors come from the REAL observation, which is determinization-invariant
@@ -462,14 +521,22 @@ export async function ismctsSearch(
   const consistent = opts.consistentWorlds ?? true;
   const worldsCache = {};
   const deadline = Date.now() + budgetMs;
+  const batcher = batchingEvaluator(evaluateBatch, parallel);
   let sims = 0;
-  while (sims < maxSims && Date.now() < deadline) {
-    const sim = consistent
-      ? consistentDeterminize(engine, rootSeat, rng, worldsCache)
-      : determinize(engine, rootSeat, rng);
-    await simulate(sim, root, rootSeat, rootTeam, cPuct, marginScale, evaluate);
-    sims++;
-  }
+  const simLoop = async (): Promise<void> => {
+    try {
+      while (sims < maxSims && Date.now() < deadline) {
+        sims++;
+        const sim = consistent
+          ? consistentDeterminize(engine, rootSeat, rng, worldsCache)
+          : determinize(engine, rootSeat, rng);
+        await simulate(sim, root, rootSeat, rootTeam, cPuct, marginScale, batcher.evaluate);
+      }
+    } finally {
+      batcher.finish();
+    }
+  };
+  await Promise.all(Array.from({ length: parallel }, simLoop));
 
   // Pick the most-visited root action (robust choice under noise).
   let bestA = -1;

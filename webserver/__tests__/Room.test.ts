@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
+import fs from "fs";
 
 // Mock pickAIAction before importing Room
 vi.mock("../ai/AIPlayer.js", () => ({
@@ -292,7 +293,7 @@ describe("Room", () => {
       room.engine.reset(0);
 
       // Simulate disconnect to create a timer
-      room.handleDisconnect("p1");
+      room.handleDisconnect("p1", ws);
       const player = room.getPlayer("p1")!;
       expect(player.disconnectTimer).not.toBeNull();
 
@@ -312,7 +313,7 @@ describe("Room", () => {
       room.startGame();
 
       // Disconnect the human player
-      room.handleDisconnect("p1");
+      room.handleDisconnect("p1", ws1);
       const player = room.getPlayer("p1")!;
       expect(player.isConnected).toBe(false);
 
@@ -334,6 +335,131 @@ describe("Room", () => {
       const calls = (ws2.send as ReturnType<typeof vi.fn>).mock.calls;
       const messages = calls.map((c) => JSON.parse(c[0] as string));
       expect(messages.some((m: any) => m.type === "player:status" && m.displayName === "Alice" && m.isConnected === true)).toBe(true);
+    });
+
+    it("ignores a late close from a socket the player has already replaced", async () => {
+      room.addPlayer("p1", "Alice", false);
+      room.addAIPlayersAtSeats([1, 2, 3] as SeatIndex[]);
+      const oldWs = mockWs();
+      const newWs = mockWs();
+      room.attachSocket("p1", oldWs);
+      room.attachSocket("p1", newWs);
+      room.startGame();
+
+      room.handleDisconnect("p1", oldWs);
+      const player = room.getPlayer("p1")!;
+      expect(player.isConnected).toBe(true);
+      await vi.advanceTimersByTimeAsync(60000);
+      expect(player.isAI).toBe(false);
+    });
+
+    it("doesn't hand a reconnected player's seat to the AI after two of their sockets close", async () => {
+      room.addPlayer("p1", "Alice", false);
+      room.addAIPlayersAtSeats([1, 2, 3] as SeatIndex[]);
+      const ws1 = mockWs();
+      const ws2 = mockWs();
+      room.attachSocket("p1", ws1);
+      room.attachSocket("p1", ws2);
+      room.startGame();
+
+      room.handleDisconnect("p1", ws2); // the live socket drops
+      room.handleDisconnect("p1", ws1); // the replaced one closes too
+      room.attachSocket("p1", mockWs()); // the player reconnects
+      await vi.advanceTimersByTimeAsync(60000);
+      expect(room.getPlayer("p1")!.isAI).toBe(false);
+    });
+  });
+
+  // --- Game flow across rounds ---
+
+  describe("game flow across rounds", () => {
+    beforeEach(() => {
+      // Keep the game logger off the disk.
+      vi.spyOn(fs, "appendFileSync").mockImplementation(() => {});
+      vi.spyOn(fs, "mkdirSync").mockImplementation(() => undefined);
+    });
+
+    function seatFourHumans(): import("ws").WebSocket[] {
+      return [0, 1, 2, 3].map((i) => {
+        room.addPlayer(`p${i}`, `P${i}`, false);
+        const ws = mockWs();
+        room.attachSocket(`p${i}`, ws);
+        return ws;
+      });
+    }
+    const moveFirstLegal = () =>
+      room.handleAction(`p${room.engine.currentPlayer}`, room.engine.getActionMask().indexOf(1));
+    const inRoundEndPause = () => (room as any)._roundEndTimeout !== null;
+    function playToRoundEndPause() {
+      for (let i = 0; i < 200 && !inRoundEndPause(); i++) moveFirstLegal();
+      expect(inRoundEndPause()).toBe(true);
+    }
+
+    it("keeps a room alive while humans keep playing", async () => {
+      seatFourHumans();
+      room.startGame();
+      for (let move = 0; move < 180; move++) { // a move every 15s for 45 minutes
+        if (!inRoundEndPause()) moveFirstLegal();
+        await vi.advanceTimersByTimeAsync(15000);
+      }
+      expect(room.engine.gameOver).toBe(false);
+      expect(onDestroy).not.toHaveBeenCalled();
+    });
+
+    it("still expires a room 30 minutes after the last human move", async () => {
+      seatFourHumans();
+      room.startGame();
+      moveFirstLegal();
+      await vi.advanceTimersByTimeAsync(30 * 60000 - 1000);
+      expect(onDestroy).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(onDestroy).toHaveBeenCalledOnce();
+    });
+
+    it("rejects moves during the round-end pause, before players have the next round", () => {
+      const sockets = seatFourHumans();
+      room.startGame();
+      playToRoundEndPause();
+
+      const seat = room.engine.currentPlayer;
+      const before = { bid: room.engine.currentBid, player: room.engine.currentPlayer };
+      const send = sockets[seat].send as ReturnType<typeof vi.fn>;
+      send.mockClear();
+      room.handleAction(`p${seat}`, room.engine.getActionMask().indexOf(1));
+
+      expect({ bid: room.engine.currentBid, player: room.engine.currentPlayer }).toEqual(before);
+      const sent = send.mock.calls.map((c) => JSON.parse(c[0] as string));
+      expect(sent).toContainEqual(expect.objectContaining({ type: "error", code: "BETWEEN_ROUNDS" }));
+    });
+
+    it("holds an AI's first move of a round until the round-end pause is over", async () => {
+      seatFourHumans();
+      room.startGame();
+      playToRoundEndPause();
+
+      room.getPlayerBySeat(room.engine.currentPlayer)!.isAI = true; // e.g. an AI takeover fired
+      room.processAITurns();
+      expect((room as any)._aiTurnPending).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(3500); // the next round starts
+      expect((room as any)._aiTurnPending).toBe(true);
+    });
+
+    it("logs a finished game without an empty trailing round", async () => {
+      seatFourHumans();
+      room.startGame();
+      for (let i = 0; i < 5000 && room.state === "playing"; i++) {
+        if (inRoundEndPause()) await vi.advanceTimersByTimeAsync(3500);
+        else moveFirstLegal();
+      }
+      expect(room.state).toBe("gameOver");
+
+      const log = JSON.parse(vi.mocked(fs.appendFileSync).mock.calls[0][1] as string);
+      expect(log.complete).toBe(true);
+      for (const round of log.rounds) {
+        expect(round.deck).toHaveLength(54);
+        expect(round.actions.length).toBeGreaterThan(0);
+      }
     });
   });
 

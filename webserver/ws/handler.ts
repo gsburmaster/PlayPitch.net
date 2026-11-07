@@ -174,7 +174,7 @@ export function handleWebSocket(ws: WebSocket, roomManager: RoomManager): void {
     if (authenticatedPlayerId && authenticatedRoomCode) {
       const room = roomManager.getRoom(authenticatedRoomCode);
       if (room) {
-        room.handleDisconnect(authenticatedPlayerId);
+        room.handleDisconnect(authenticatedPlayerId, ws);
       }
     }
   });

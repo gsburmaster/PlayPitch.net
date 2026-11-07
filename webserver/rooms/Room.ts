@@ -138,9 +138,10 @@ export class Room {
     this.resetExpirationTimer();
   }
 
-  handleDisconnect(playerId: string): void {
+  handleDisconnect(playerId: string, ws: WebSocket): void {
     const player = this.getPlayer(playerId);
-    if (!player) return;
+    // A socket the player has since replaced closing late says nothing about them.
+    if (!player || player.ws !== ws) return;
     player.ws = null;
     player.isConnected = false;
 
@@ -211,6 +212,7 @@ export class Room {
     if (this.state !== "lobby" || !this.isAllFilled()) return;
 
     this.state = "playing";
+    this.resetExpirationTimer();
     this.gameLogger = new GameLogger();
     const logger = this.gameLogger;
     this.engine.onDeckShuffled = (deck) => logger.setDeck(deck);
@@ -248,11 +250,19 @@ export class Room {
       this.send(playerId, { type: "error", message: "Game not in progress", code: "NOT_PLAYING" });
       return;
     }
+    // During the round-end pause the engine has already dealt the next round,
+    // but players haven't been sent it yet.
+    if (this._roundEndTimeout !== null) {
+      this.send(playerId, { type: "error", message: "The next round hasn't started yet", code: "BETWEEN_ROUNDS" });
+      return;
+    }
     if (this.engine.currentPlayer !== player.seatIndex) {
       this.send(playerId, { type: "error", message: "Not your turn", code: "NOT_YOUR_TURN" });
       return;
     }
 
+    // The room stays alive while humans keep playing.
+    this.resetExpirationTimer();
     this.executeAction(action);
   }
 
@@ -330,7 +340,7 @@ export class Room {
         }
         case "roundEnd": {
           this.gameLogger?.endRound();
-          this.gameLogger?.startRound(this.getAISeatIndices());
+          if (!this.engine.gameOver) this.gameLogger?.startRound(this.getAISeatIndices());
           const re = event.data as unknown as { bidderTeam: number; bidAmount: number; bidMade: boolean; roundScores: [number, number]; scoreDeltas: [number, number]; totalScores: [number, number]; newDealer: number };
           this.broadcast({
             type: "game:roundEnd",
@@ -406,7 +416,7 @@ export class Room {
 
   processAITurns(): void {
     if (this.state !== "playing" || this.engine.gameOver) return;
-    if (this._aiTurnPending) return;
+    if (this._aiTurnPending || this._roundEndTimeout !== null) return;
 
     const currentSeat = this.engine.currentPlayer;
     const currentPlayer = this.getPlayerBySeat(currentSeat);

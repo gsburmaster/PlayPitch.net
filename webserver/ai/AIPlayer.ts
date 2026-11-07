@@ -7,7 +7,7 @@ import path from "path";
 import fs from "fs";
 
 let session: ort.InferenceSession | null = null;
-let loadAttempted = false;
+let sessionLoad: Promise<ort.InferenceSession | null> | null = null;
 let modelHasLSTM = false; // true if model has h_in/c_in inputs (PPO+LSTM)
 
 // Per-room, per-seat LSTM hidden state: "roomCode:seat" → {h, c}
@@ -45,29 +45,30 @@ const MODEL_PATH = process.env.PITCH_MODEL_PATH
 const BID_MODEL_PATH = process.env.PITCH_BID_MODEL_PATH
   ? path.resolve(process.env.PITCH_BID_MODEL_PATH)
   : path.join(MODEL_DIR, "agent_0_bid.onnx");
-let bidSession: ort.InferenceSession | null = null;
-let bidLoadAttempted = false;
+let bidSessionLoad: Promise<ort.InferenceSession | null> | null = null;
 
-export async function getBidSession(): Promise<ort.InferenceSession | null> {
-  if (bidLoadAttempted) return bidSession;
-  bidLoadAttempted = true;
+// Callers that arrive while a model is still loading wait for the same load.
+export function getBidSession(): Promise<ort.InferenceSession | null> {
+  return (bidSessionLoad ??= loadBidModel());
+}
+
+async function loadBidModel(): Promise<ort.InferenceSession | null> {
   if (!fs.existsSync(BID_MODEL_PATH)) {
     console.log(`Bid model not found at ${BID_MODEL_PATH} — main model will bid`);
     return null;
   }
   try {
-    bidSession = await ort.InferenceSession.create(BID_MODEL_PATH);
+    const bidSession = await ort.InferenceSession.create(BID_MODEL_PATH);
     console.log(`Loaded bid model from ${BID_MODEL_PATH}`);
+    return bidSession;
   } catch (err) {
     console.error("Failed to load bid model, main model will bid:", err);
+    return null;
   }
-  return bidSession;
 }
 
-export async function getSession(): Promise<ort.InferenceSession | null> {
-  if (session) return session;
-  if (loadAttempted) return null;
-  return loadModel();
+export function getSession(): Promise<ort.InferenceSession | null> {
+  return (sessionLoad ??= loadModel());
 }
 
 /** Whether the loaded model is the PPO+LSTM variant (has h_in/c_in + value). */
@@ -143,8 +144,6 @@ export async function evaluatePolicyValueBatch(
 }
 
 async function loadModel(): Promise<ort.InferenceSession | null> {
-  loadAttempted = true;
-
   if (!fs.existsSync(MODEL_PATH)) {
     console.log(`ONNX model not found at ${MODEL_PATH} — AI will use random fallback`);
     return null;
@@ -168,7 +167,7 @@ async function loadModel(): Promise<ort.InferenceSession | null> {
  * Load the ONNX model eagerly at server startup.
  */
 export async function initAIModel(): Promise<void> {
-  await loadModel();
+  await getSession();
   await getBidSession();
 }
 

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAppState } from "../contexts/AppContext";
 import { useGameState } from "../contexts/GameContext";
-import { useWebSocket } from "../hooks/useWebSocket";
+import { useWebSocket } from "../contexts/WebSocketContext";
 import type { SeatIndex } from "../types";
 import Scoreboard from "../components/game/Scoreboard";
 import TrumpIndicator from "../components/game/TrumpIndicator";

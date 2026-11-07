@@ -39,7 +39,8 @@ export interface AppState {
   roomCode: string;
   seatIndex: SeatIndex | null;
   isCreator: boolean;
-  connectionStatus: "disconnected" | "connecting" | "connected";
+  /** "idle" until there's a room to connect to. */
+  connectionStatus: "idle" | "disconnected" | "connecting" | "connected";
 }
 
 export type AppAction =
@@ -48,7 +49,8 @@ export type AppAction =
   | { type: "GAME_STARTED" }
   | { type: "RETURN_TO_LOBBY" }
   | { type: "RETURN_TO_SPLASH" }
-  | { type: "SET_CONNECTION_STATUS"; status: AppState["connectionStatus"] };
+  | { type: "SET_CONNECTION_STATUS"; status: AppState["connectionStatus"] }
+  | { type: "AUTH_OK"; isCreator: boolean };
 
 const initialState: AppState = {
   currentView: "splash",
@@ -57,10 +59,10 @@ const initialState: AppState = {
   roomCode: "",
   seatIndex: null,
   isCreator: false,
-  connectionStatus: "disconnected",
+  connectionStatus: "idle",
 };
 
-function appReducer(state: AppState, action: AppAction): AppState {
+export function appReducer(state: AppState, action: AppAction): AppState {
   switch (action.type) {
     case "SET_NAME":
       return { ...state, displayName: action.name };
@@ -88,6 +90,9 @@ function appReducer(state: AppState, action: AppAction): AppState {
       return { ...initialState, displayName: state.displayName };
     case "SET_CONNECTION_STATUS":
       return { ...state, connectionStatus: action.status };
+    case "AUTH_OK":
+      // The server is the authority on who created the room (a rejoin doesn't know).
+      return { ...state, connectionStatus: "connected", isCreator: action.isCreator };
     default:
       return state;
   }

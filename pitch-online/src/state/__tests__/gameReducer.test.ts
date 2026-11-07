@@ -229,12 +229,14 @@ describe("gameReducer", () => {
       expect(next.roundScores).toEqual([1, 0]);
     });
 
+    const shownTrick = { trick: [], winner: 0, winnerName: "A", pointsWon: 0, roundScores: [0, 0] as [number, number] };
+
     it("CLEAR_TRICK_RESULT clears result and trick", () => {
       const state = stateWith({
-        lastTrickResult: { trick: [], winner: 0, winnerName: "A", pointsWon: 0, roundScores: [0, 0] },
+        lastTrickResult: shownTrick,
         currentTrick: [{ card: card(0, 15), seatIndex: 0 }],
       });
-      const next = gameReducer(state, { type: "CLEAR_TRICK_RESULT" });
+      const next = gameReducer(state, { type: "CLEAR_TRICK_RESULT", trick: shownTrick });
       expect(next.lastTrickResult).toBeNull();
       expect(next.currentTrick).toEqual([]);
     });
@@ -244,9 +246,20 @@ describe("gameReducer", () => {
         lastTrickResult: null,
         currentTrick: [{ card: card(0, 15), seatIndex: 0 }],
       });
-      const next = gameReducer(state, { type: "CLEAR_TRICK_RESULT" });
+      const next = gameReducer(state, { type: "CLEAR_TRICK_RESULT", trick: shownTrick });
       expect(next).toBe(state);
       expect(next.currentTrick).toHaveLength(1);
+    });
+
+    it("an earlier trick's CLEAR_TRICK_RESULT leaves a later trick's result showing", () => {
+      const first = { ...shownTrick, winnerName: "first" };
+      const second = { ...shownTrick, winnerName: "second" };
+      let state = gameReducer(initialGameState, { type: "TRICK_RESULT", data: first });
+      state = gameReducer(state, { type: "TRICK_RESULT", data: second }); // a fast trick, within 1.5s
+      state = gameReducer(state, { type: "CLEAR_TRICK_RESULT", trick: first });
+      expect(state.lastTrickResult).toBe(second);
+      state = gameReducer(state, { type: "CLEAR_TRICK_RESULT", trick: second });
+      expect(state.lastTrickResult).toBeNull();
     });
   });
 
@@ -317,7 +330,7 @@ describe("gameReducer", () => {
         handIndex: 0,
       });
       // Clear timer fires at 1500ms
-      state = gameReducer(state, { type: "CLEAR_TRICK_RESULT" });
+      state = gameReducer(state, { type: "CLEAR_TRICK_RESULT", trick: trickResult });
       // Winner's card must still be there
       expect(state.currentTrick).toHaveLength(1);
       expect(state.currentTrick[0]).toEqual({ card: card(1, 15), seatIndex: 2 });
@@ -349,7 +362,7 @@ describe("gameReducer", () => {
         handIndex: 0,
       });
       // Clear timer fires — should be no-op
-      state = gameReducer(state, { type: "CLEAR_TRICK_RESULT" });
+      state = gameReducer(state, { type: "CLEAR_TRICK_RESULT", trick: trickResult });
       expect(state.currentTrick).toHaveLength(2);
       expect(state.currentTrick[0]).toEqual({ card: card(1, 15), seatIndex: 2 });
       expect(state.currentTrick[1]).toEqual({ card: card(1, 10), seatIndex: 3 });
@@ -414,6 +427,23 @@ describe("gameReducer", () => {
       expect(next.roundEndData).toEqual(data);
       expect(next.scores).toEqual([20, 12]);
       expect(next.currentTrick).toEqual([]);
+    });
+
+    it("clears the last turn's action mask, so stale cards can't be clicked between rounds", () => {
+      const state = stateWith({ actionMask: [1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] });
+      const next = gameReducer(state, {
+        type: "ROUND_END",
+        data: {
+          bidderTeam: 0,
+          bidAmount: 5,
+          bidMade: true,
+          roundScores: [4, 2],
+          scoreDeltas: [5, 2],
+          totalScores: [20, 12],
+          newDealer: 1,
+        },
+      });
+      expect(next.actionMask).toBeNull();
     });
   });
 

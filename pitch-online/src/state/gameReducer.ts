@@ -92,7 +92,7 @@ export type GameAction =
   | { type: "GAME_OVER"; data: GameOverData }
   | { type: "LOBBY_UPDATE"; seats: SeatInfo[] }
   | { type: "PLAYER_STATUS"; seatIndex: number; isConnected: boolean; displayName: string }
-  | { type: "CLEAR_TRICK_RESULT" }
+  | { type: "CLEAR_TRICK_RESULT"; trick: TrickResultData }
   | { type: "CLEAR_ROUND_END" }
   | { type: "SET_LOCAL_SEAT"; seatIndex: number }
   | { type: "RESET" };
@@ -175,7 +175,8 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         roundScores: action.data.roundScores,
       };
     case "CLEAR_TRICK_RESULT":
-      if (state.lastTrickResult === null) return state;
+      // Only the trick this clear was scheduled for: a later trick keeps its full display time.
+      if (state.lastTrickResult !== action.trick) return state;
       return { ...state, lastTrickResult: null, currentTrick: [] };
     case "ROUND_END":
       return {
@@ -183,6 +184,8 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         roundEndData: action.data,
         scores: action.data.totalScores,
         currentTrick: [],
+        // The last turn's mask is stale; the next round sends a fresh turn.
+        actionMask: null,
       };
     case "CLEAR_ROUND_END":
       return { ...state, roundEndData: null };

@@ -4,6 +4,7 @@ import "./styles/theme.css";
 import { AppProvider, useAppState } from "./contexts/AppContext";
 import { GameProvider } from "./contexts/GameContext";
 import { ToastProvider } from "./components/common/Toast";
+import { WebSocketProvider } from "./contexts/WebSocketContext";
 import { SoundContext, useSoundSystem } from "./hooks/useSound";
 import SplashScreen from "./screens/SplashScreen";
 import LobbyScreen from "./screens/LobbyScreen";
@@ -37,9 +38,11 @@ function App() {
       <GameProvider>
         <SoundProvider>
           <ToastProvider>
-            <ConnectionStatus />
-            <AppContent />
-            <MuteButton />
+            <WebSocketProvider>
+              <ConnectionStatus />
+              <AppContent />
+              <MuteButton />
+            </WebSocketProvider>
           </ToastProvider>
         </SoundProvider>
       </GameProvider>

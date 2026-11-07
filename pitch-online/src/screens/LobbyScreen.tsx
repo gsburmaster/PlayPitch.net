@@ -1,8 +1,7 @@
-import { useState } from "react";
-import { Button, Card, Spinner } from "react-bootstrap";
+import { Button, Card } from "react-bootstrap";
 import { useAppState } from "../contexts/AppContext";
 import { useGameState } from "../contexts/GameContext";
-import { useWebSocket } from "../hooks/useWebSocket";
+import { useWebSocket } from "../contexts/WebSocketContext";
 import RoomCodeDisplay from "../components/lobby/RoomCodeDisplay";
 import SeatMap from "../components/lobby/SeatMap";
 import DisconnectedOverlay from "../components/common/DisconnectedOverlay";
@@ -12,14 +11,8 @@ export default function LobbyScreen() {
   const { roomCode, seatIndex, isCreator } = useAppState();
   const { seats } = useGameState();
   const { startGame, leaveRoom, reconnect } = useWebSocket();
-  const [starting, setStarting] = useState(false);
 
   const allFilled = seats.length === 4;
-
-  const handleStart = () => {
-    setStarting(true);
-    startGame();
-  };
 
   return (
     <div className="table-bg d-flex align-items-center justify-content-center" style={{ minHeight: "100vh" }}>
@@ -29,9 +22,10 @@ export default function LobbyScreen() {
           <RoomCodeDisplay code={roomCode} />
           <SeatMap seats={seats} localSeat={seatIndex} />
           <div className="d-flex gap-2 justify-content-center mt-3">
+            {/* Starting twice is harmless: the server ignores a start once the game is on. */}
             {isCreator && (
-              <Button variant="success" disabled={!allFilled || starting} onClick={handleStart}>
-                {starting ? <><Spinner animation="border" size="sm" className="me-2" />Starting...</> : "Start Game"}
+              <Button variant="success" disabled={!allFilled} onClick={startGame}>
+                Start Game
               </Button>
             )}
             <Button variant="outline-danger" onClick={leaveRoom}>

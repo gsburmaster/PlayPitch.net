@@ -7,7 +7,7 @@ interface Props {
 export default function DisconnectedOverlay({ onReconnect }: Props) {
   const { connectionStatus } = useAppState();
 
-  if (connectionStatus === "connected") return null;
+  if (connectionStatus === "connected" || connectionStatus === "idle") return null;
 
   const isConnecting = connectionStatus === "connecting";
 

@@ -3,7 +3,7 @@ import { useAppState } from "../../contexts/AppContext";
 export default function ConnectionStatus() {
   const { connectionStatus } = useAppState();
 
-  if (connectionStatus === "connected") return null;
+  if (connectionStatus === "connected" || connectionStatus === "idle") return null;
 
   const isWarning = connectionStatus === "connecting";
   const text = isWarning ? "Connecting..." : "Disconnected";
